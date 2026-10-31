@@ -266,7 +266,9 @@ class CycleTest {
     }
 
     private void moveCycleToDiagnostic() {
-        cycle.start();
+        if (cycle.getStatus() == CycleState.E00_INACTIVO) {
+            cycle.start();
+        }
         cycle.transitionTo(CycleState.E02_OBSERVANDO);
         cycle.transitionTo(CycleState.E03_DIAGNOSTICANDO);
     }
