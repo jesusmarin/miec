@@ -1,0 +1,39 @@
+package com.miec.domain;
+
+/**
+ * Clasificación de los eventos registrados por MIEC.
+ */
+public enum EventType {
+
+    CYCLE_CREATED,
+
+    STATE_TRANSITION,
+
+    CYCLE_SUSPENDED,
+
+    CYCLE_RESUMED,
+
+    CYCLE_FINISHED,
+
+    CYCLE_ABORTED,
+
+    APPROVAL_GRANTED,
+
+    APPROVAL_REJECTED,
+
+    EXECUTION_STARTED,
+
+    EXECUTION_COMPLETED,
+
+    EVIDENCE_REGISTERED,
+
+    DECISION_RECORDED,
+
+    ERROR_OCCURRED,
+
+    RECOVERY_STARTED,
+
+    OBSERVATION_RECORDED,
+
+    LEARNING_RECORDED
+}
