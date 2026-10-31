@@ -140,8 +140,23 @@ public class Cycle {
         };
     }
 
+    /**
+     * Inicia el ciclo, pasando de E00_INACTIVO a E01_INICIALIZANDO.
+     *
+     * @throws IllegalStateException si el ciclo ya está inicializado
+     *         o en un estado posterior.
+     * @see CycleState#E00_INACTIVO
+     * @see CycleState#E01_INICIALIZANDO
+     */
     public void start() {
         transitionTo(CycleState.E01_INICIALIZANDO);
+    }
+
+    /**
+     * Indica si el estado representa la ausencia de un ciclo activo.
+     */
+    public boolean isInitial() {
+        return this.status == CycleState.E00_INACTIVO;
     }
 
     public void suspend() {
@@ -158,10 +173,53 @@ public class Cycle {
         transitionTo(CycleState.E13_RECUPERANDO);
     }
 
+    /**
+     * Reanuda el ciclo hacia el estado objetivo especificado.
+     *
+     * @param target debe ser E02, E04, E13 o E15, conforme a F01 §4.
+     * @throws IllegalStateException si el ciclo no está suspendido
+     *         o si el estado objetivo no es una reanudación válida.
+     */
+    public void resumeTo(CycleState target) {
+        if (status != CycleState.E12_SUSPENDIDO) {
+            throw new IllegalStateException(
+                    "Solo se puede reanudar un ciclo suspendido."
+            );
+        }
+
+        if (target != CycleState.E02_OBSERVANDO
+                && target != CycleState.E04_PLANIFICANDO
+                && target != CycleState.E13_RECUPERANDO
+                && target != CycleState.E15_ABORTADO) {
+            throw new IllegalArgumentException(
+                    "Estado objetivo no válido para reanudación: " + target
+            );
+        }
+
+        transitionTo(target);
+    }
+
+    /**
+     * Finaliza el ciclo.
+     *
+     * @throws IllegalStateException si el ciclo no está en E11_CONTINUANDO
+     *         o si ya está en un estado terminal.
+     * @see CycleState#E11_CONTINUANDO
+     * @see CycleState#E14_FINALIZADO
+     */
     public void finish() {
         transitionTo(CycleState.E14_FINALIZADO);
     }
 
+    /**
+     * Aborta el ciclo.
+     *
+     * @throws IllegalStateException si el ciclo no está en E12_SUSPENDIDO
+     *         o E13_RECUPERANDO, o si ya está en un estado terminal.
+     * @see CycleState#E12_SUSPENDIDO
+     * @see CycleState#E13_RECUPERANDO
+     * @see CycleState#E15_ABORTADO
+     */
     public void abort() {
         transitionTo(CycleState.E15_ABORTADO);
     }
