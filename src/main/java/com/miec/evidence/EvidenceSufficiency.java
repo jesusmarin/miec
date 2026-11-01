@@ -24,7 +24,10 @@ public enum EvidenceSufficiency {
     }
 
     public boolean hasLimitations() {
-        return this == ACCEPTABLE_WITH_LIMITATIONS;
+        return this == NOT_EVALUABLE
+                || this == INSUFFICIENT
+                || this == ACCEPTABLE_WITH_LIMITATIONS;
+
     }
 
 }

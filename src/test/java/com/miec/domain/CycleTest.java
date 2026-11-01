@@ -266,7 +266,9 @@ class CycleTest {
     }
 
     private void moveCycleToDiagnostic() {
-        cycle.start();
+        if (cycle.getStatus() == CycleState.E00_INACTIVO) {
+            cycle.start();
+        }
         cycle.transitionTo(CycleState.E02_OBSERVANDO);
         cycle.transitionTo(CycleState.E03_DIAGNOSTICANDO);
     }
@@ -287,5 +289,80 @@ class CycleTest {
         moveCycleToExecution();
         cycle.transitionTo(CycleState.E08_VERIFICANDO);
         cycle.transitionTo(CycleState.E09_DECIDIENDO);
+    }
+
+    @Test
+    @DisplayName("Debe permitir reanudar hacia OBSERVANDO desde SUSPENDIDO")
+    void shouldResumeToObservation() {
+        moveCycleToExecution();
+        cycle.suspend();
+
+        cycle.resumeTo(CycleState.E02_OBSERVANDO);
+
+        assertThat(cycle.getStatus())
+                .isEqualTo(CycleState.E02_OBSERVANDO);
+    }
+
+    @Test
+    @DisplayName("Debe permitir reanudar hacia PLANIFICANDO desde SUSPENDIDO")
+    void shouldResumeToPlanning() {
+        moveCycleToExecution();
+        cycle.suspend();
+
+        cycle.resumeTo(CycleState.E04_PLANIFICANDO);
+
+        assertThat(cycle.getStatus())
+                .isEqualTo(CycleState.E04_PLANIFICANDO);
+    }
+
+    @Test
+    @DisplayName("Debe permitir reanudar hacia RECUPERANDO desde SUSPENDIDO")
+    void shouldResumeToRecovery() {
+        moveCycleToExecution();
+        cycle.suspend();
+
+        cycle.resumeTo(CycleState.E13_RECUPERANDO);
+
+        assertThat(cycle.getStatus())
+                .isEqualTo(CycleState.E13_RECUPERANDO);
+    }
+
+    @Test
+    @DisplayName("Debe permitir reanudar hacia ABORTADO desde SUSPENDIDO")
+    void shouldResumeToAbort() {
+        moveCycleToExecution();
+        cycle.suspend();
+
+        cycle.resumeTo(CycleState.E15_ABORTADO);
+
+        assertThat(cycle.getStatus())
+                .isEqualTo(CycleState.E15_ABORTADO);
+        assertThat(cycle.isTerminal()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Debe rechazar reanudar hacia un estado no permitido")
+    void shouldRejectResumeToInvalidState() {
+        moveCycleToExecution();
+        cycle.suspend();
+
+        assertThatThrownBy(() ->
+                cycle.resumeTo(CycleState.E07_EJECUTANDO))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Estado objetivo no válido para reanudación");
+
+        assertThat(cycle.getStatus())
+                .isEqualTo(CycleState.E12_SUSPENDIDO);
+    }
+
+    @Test
+    @DisplayName("Debe rechazar reanudar un ciclo no suspendido")
+    void shouldRejectResumeToWhenNotSuspended() {
+        moveCycleToExecution();
+
+        assertThatThrownBy(() ->
+                cycle.resumeTo(CycleState.E02_OBSERVANDO))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Solo se puede reanudar");
     }
 }
