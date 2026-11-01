@@ -72,9 +72,16 @@ public class CycleEntity {
     private Integer cycleNumber;
 
     /**
-     * Identificador opcional del ciclo padre.
+     * Relación jerárquica de solo lectura desde JPA.
+     *
+     * Las modificaciones deben realizarse exclusivamente
+     * mediante CycleHierarchyService.assignParent().
      */
-    @Column(name = "parent_cycle_id")
+    @Column(
+            name = "parent_cycle_id",
+            insertable = false,
+            updatable = false
+    )
     private UUID parentCycleId;
 
     /**
@@ -400,30 +407,6 @@ public class CycleEntity {
         return this;
     }
 
-    /**
-     * Establece un ciclo padre.
-     *
-     * <p>Si el identificador del ciclo actual ya existe,
-     * impide una autorreferencia directa.
-     *
-     * <p>La pertenencia al mismo sistema se verifica
-     * mediante la clave foránea compuesta de V002.
-     * Los ciclos indirectos deben validarse en dominio.
-     *
-     * @param parentCycleId UUID del padre o null
-     * @return esta entidad
-     * @throws IllegalArgumentException ante autorreferencia
-     */
-    public CycleEntity parentCycleId(UUID parentCycleId) {
-        if (cycleId != null && cycleId.equals(parentCycleId)) {
-            throw new IllegalArgumentException(
-                    "Un ciclo no puede ser su propio padre"
-            );
-        }
-
-        this.parentCycleId = parentCycleId;
-        return this;
-    }
 
     /**
      * Establece el estado persistido.

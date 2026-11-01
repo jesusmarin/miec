@@ -7,7 +7,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
+import jakarta.persistence.Column;
 import java.lang.reflect.Field;
 import java.time.Instant;
 import java.util.UUID;
@@ -88,49 +88,74 @@ class CycleEntityTest {
         assertEquals(3, entity.getCycleNumber());
     }
 
+
+
+
     /**
-     * Comprueba la referencia a un ciclo padre.
+     * Verifica que la relación parental no pueda
+     * escribirse mediante las operaciones JPA.
+     *
+     * <p>La entidad puede consultar parent_cycle_id,
+     * pero debe delegar las modificaciones jerárquicas
+     * en CycleHierarchyService.
      */
     @Test
     @DisplayName(
-            "Debe permitir asociar un ciclo padre"
+            "Debe declarar parent_cycle_id como columna de solo lectura JPA"
     )
-    void shouldSetParentCycle() {
-        UUID parentId = UUID.randomUUID();
+    void shouldMapParentAsReadOnly()
+            throws NoSuchFieldException {
 
-        CycleEntity entity =
-                new CycleEntity(UUID.randomUUID())
-                        .parentCycleId(parentId);
+        Field parentField =
+                CycleEntity.class.getDeclaredField(
+                        "parentCycleId"
+                );
 
-        assertEquals(parentId, entity.getParentCycleId());
-    }
+        Column column = parentField.getAnnotation(
+                Column.class
+        );
 
-    /**
-     * Comprueba la validación de autorreferencias directas.
-     */
-    @Test
-    @DisplayName(
-            "Debe rechazar que un ciclo persistido sea su propio padre"
-    )
-    void shouldRejectSelfParent()
-            throws ReflectiveOperationException {
+        assertNotNull(column);
 
-        CycleEntity entity =
-                new CycleEntity(UUID.randomUUID());
-
-        UUID cycleId = UUID.randomUUID();
-
-        Field idField =
-                CycleEntity.class.getDeclaredField("cycleId");
-
-        idField.setAccessible(true);
-        idField.set(entity, cycleId);
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> entity.parentCycleId(cycleId)
+        assertAll(
+                () -> assertEquals(
+                        "parent_cycle_id",
+                        column.name()
+                ),
+                () -> assertFalse(
+                        column.insertable(),
+                        "JPA no debe insertar el padre"
+                ),
+                () -> assertFalse(
+                        column.updatable(),
+                        "JPA no debe actualizar el padre"
+                )
         );
     }
+
+    /**
+     * Comprueba que CycleEntity no exponga
+     * un método público para cambiar el padre.
+     *
+     * <p>Esta restricción evita que nuevos servicios
+     * utilicen accidentalmente una vía que omita
+     * las validaciones de IR-013.
+     */
+    @Test
+    @DisplayName(
+            "No debe exponer un modificador público de la jerarquía"
+    )
+    void shouldNotExposePublicParentModifier() {
+
+        assertThrows(
+                NoSuchMethodException.class,
+                () -> CycleEntity.class.getMethod(
+                        "parentCycleId",
+                        UUID.class
+                )
+        );
+    }
+
 
     /**
      * Comprueba la obligatoriedad del estado.
