@@ -18,11 +18,19 @@ public interface IdempotentActionExecutor {
         }
     }
     /** Contexto enviado al destino: misma clave entre intentos y generación actual. */
-    record Context(ExecutionOperationRegistry.Operation operation,ExecutionActivityService.Ownership ownership) { }
-    /** Identidad estable del destinatario configurado. */
-    String destinationId();
-    /** SHA-256 hexadecimal del contenido canónico realmente enviado. */
-    String requestFingerprint();
+    record Context(ExecutionOperationRegistry.Operation operation,ExecutionActivityService.Ownership ownership,
+                   ExecutionRequest request) {
+        /** Exige que los bytes entregados correspondan a la clave y huella persistidas. */
+        public Context {
+            java.util.Objects.requireNonNull(operation);java.util.Objects.requireNonNull(ownership);
+            java.util.Objects.requireNonNull(request);
+            if(!request.destinationId().equals(operation.destination())||!request.fingerprint().equals(operation.fingerprint())) {
+                throw new IllegalArgumentException("Solicitud distinta de la operación registrada");
+            }
+        }
+    }
+    /** Captura una única solicitud inmutable antes de reservar la clave y producir efectos. */
+    ExecutionRequest request();
     /** Consulta durablemente si la operación ya ocurrió, sin ejecutar el efecto. */
     Lookup lookup(Context context);
     /** Envía usando la clave; repetirla debe devolver el mismo resultado sin duplicar el efecto. */

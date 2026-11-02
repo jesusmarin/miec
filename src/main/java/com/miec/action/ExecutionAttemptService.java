@@ -500,6 +500,11 @@ public class ExecutionAttemptService {
                     if (latest != null) {
                         ExecutionStatus retryStatus = latest.status();
                         EffectOutcome retryOutcome = latest.effectOutcome();
+                        if(latest.status()==ExecutionStatus.PENDING && jdbc.queryForObject(
+                                "SELECT COUNT(*) FROM execution_pending_review WHERE execution_id=?",Integer.class,latest.executionId())==1) {
+                            retryStatus=ExecutionStatus.FAILED;
+                            retryOutcome=EffectOutcome.NO_EFFECT_CONFIRMED;
+                        }
                         if (operationKey != null && (latest.status() == ExecutionStatus.UNKNOWN
                                 || latest.status() == ExecutionStatus.IN_PROGRESS)) {
                             UUID previousKey = jdbc.queryForObject(
@@ -794,6 +799,9 @@ public class ExecutionAttemptService {
             }
             PlanSnapshot plan = lockAndReadPlan(planIds.getFirst());
             AttemptSnapshot current = lockAttempt(executionId);
+            if(jdbc.queryForObject("SELECT COUNT(*) FROM execution_pending_review WHERE execution_id=?",Integer.class,executionId)>0) {
+                throw new AttemptDeniedException("IR-009: intento cancelado antes del inicio");
+            }
             if (current.status() != ExecutionStatus.PENDING) {
                 throw new AttemptDeniedException("IR-009: solo PENDING puede iniciarse");
             }
@@ -846,6 +854,7 @@ public class ExecutionAttemptService {
     /**
      * Registra rechazo anterior al efecto externo. Nunca se invoca
      * después de que el ejecutor haya comenzado.
+     * Una cancelación auditada ya existente se conserva sin reescribir sus fechas.
      */
     public AttemptSnapshot rejectPendingBeforeExecution(
             UUID executionId, String errorReference
@@ -854,6 +863,9 @@ public class ExecutionAttemptService {
         String reference = requireText(errorReference, "errorReference", 500);
         return Objects.requireNonNull(transaction.execute(tx -> {
             AttemptSnapshot current = lockAttempt(executionId);
+            if(jdbc.queryForObject("SELECT COUNT(*) FROM execution_pending_review WHERE execution_id=?",Integer.class,executionId)>0) {
+                return current;
+            }
             if (current.status() != ExecutionStatus.PENDING) {
                 throw new AttemptDeniedException(
                         "IR-009: solamente PENDING puede rechazarse antes de ejecutar"

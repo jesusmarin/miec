@@ -19,7 +19,10 @@ class IdempotentActionExecutionServiceTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ExecutionAttemptService attempts;
     @Autowired private ExecutionEvidenceService evidence;
-    @Autowired private ExecutionReconciliationService reconciliation;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    private ExecutionReconciliationService reconciliation;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    private ExecutionRecoveryAccess recoveryAccess;
     @Autowired private IdempotentActionExecutionService service;
     @Autowired private AuthorizedActionExecutionService coordinator;
     @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
@@ -30,10 +33,8 @@ class IdempotentActionExecutionServiceTest {
         final AtomicInteger effects=new AtomicInteger(), sends=new AtomicInteger();
         final AtomicBoolean failBefore=new AtomicBoolean(), loseResponse=new AtomicBoolean();
         volatile boolean unknownLookup;
-        /** Identidad de un único destinatario de prueba. */
-        public String destinationId() { return "test-destination"; }
-        /** Huella estable de una solicitud de prueba inmutable. */
-        public String requestFingerprint() { return "a".repeat(64); }
+        /** Devuelve la solicitud inmutable usada por el destinatario simulado. */
+        public ExecutionRequest request() { return new ExecutionRequest("test-destination","application/json","{}"); }
         /** Consulta sin efectos; permite simular incertidumbre de comunicación. */
         public Lookup lookup(Context context) {
             if(unknownLookup) return new Lookup(Status.UNKNOWN,null);
@@ -70,6 +71,9 @@ class IdempotentActionExecutionServiceTest {
         var proof=evidence.verified(UUID.randomUUID(),s.executionId(),f.reviewAuthorization(),"reviewer",EFFECT_APPLIED,"destination:result:1",Instant.now());
         var decision=reconciliation.decide(new ExecutionReconciliationService.Command(s.executionId(),proof.id(),APPLIED,f.reviewAuthorization(),"reviewer","Resultado consultado al destinatario"));
         assertEquals(APPLIED,decision.command().resolution());
+        var recovered=service.recoverResult(f.command()).orElseThrow();
+        assertEquals("destination:result:1",recovered.reference());
+        assertEquals("UNKNOWN",recovered.originalStatus());
         assertThrows(AuthorizedActionExecutionService.ExecutionDeniedException.class,()->service.execute(f.command(),destination));
         assertEquals(1,destination.effects.get());
         assertEquals(1,destination.sends.get());
@@ -85,6 +89,8 @@ class IdempotentActionExecutionServiceTest {
         assertEquals(2,result.attemptNumber());assertEquals("COMPLETED",result.status());
         assertEquals(1,destination.effects.get());
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(DISTINCT operation_key) FROM execution_attempt WHERE plan_id=?",Integer.class,f.plan()));
+        assertEquals("result:1",service.recoverResult(f.command()).orElseThrow().reference());
+        assertEquals(2,attempts.findHistory(f.plan(),f.action()).size());
         assertThrows(AuthorizedActionExecutionService.ExecutionDeniedException.class,()->coordinator.executeAuthorized(f.command(),()->fail("No debe usar ruta heredada")));
     }
 
@@ -154,6 +160,97 @@ class IdempotentActionExecutionServiceTest {
         assertThrows(AuthorizedActionExecutionService.ExecutionDeniedException.class,()->service.execute(f.command(),destination));
         assertEquals(0,destination.effects.get());
         assertEquals(1,attempts.findHistory(f.plan(),f.action()).size());
+    }
+
+    /** La evidencia toma primero el bloqueo del plan; el reintento observa la contradicción confirmada. */
+    @Test @DisplayName("Contradicción que confirma primero impide crear el reintento concurrente")
+    void shouldRejectRetryWhenConcurrentEvidenceCommitsFirst() throws Exception {
+        var f=ExecutionRecoveryTestSupport.fixture(jdbc);var destination=new Destination();
+        resolveNoEffect(f,destination);var s=attempts.findHistory(f.plan(),f.action()).getFirst();
+        var locked=new CountDownLatch(1);var release=new CountDownLatch(1);var entered=new CountDownLatch(1);
+        var reporter=new ThreadLocal<Boolean>();
+        org.mockito.Mockito.doAnswer(call->{
+            var result=call.callRealMethod();
+            if(Boolean.TRUE.equals(reporter.get())) { locked.countDown();assertTrue(release.await(5,TimeUnit.SECONDS)); }
+            return result;
+        }).when(recoveryAccess).lock(s.executionId());
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            try {
+                var report=pool.submit(()->{reporter.set(true);try{return evidence.report(UUID.randomUUID(),s.ownership(),EFFECT_APPLIED,"concurrent",Instant.now());}finally{reporter.remove();}});
+                assertTrue(locked.await(5,TimeUnit.SECONDS));
+                var retry=pool.submit(()->{entered.countDown();return service.execute(f.command(),destination);});
+                assertTrue(entered.await(5,TimeUnit.SECONDS));release.countDown();report.get(10,TimeUnit.SECONDS);
+                var failure=assertThrows(ExecutionException.class,()->retry.get(10,TimeUnit.SECONDS));
+                assertInstanceOf(AuthorizedActionExecutionService.ExecutionDeniedException.class,failure.getCause());
+            } finally { release.countDown(); }
+        }
+        assertEquals(1,attempts.findHistory(f.plan(),f.action()).size());assertEquals(0,destination.effects.get());
+    }
+
+    /** Si el reintento toma primero el plan, una aplicación tardía usa la misma clave y no duplica efecto. */
+    @Test @DisplayName("Reintento que confirma primero conserva evidencia concurrente y deduplicación")
+    void shouldPreserveSafetyWhenRetryCommitsBeforeEvidence() throws Exception {
+        var f=ExecutionRecoveryTestSupport.fixture(jdbc);var destination=new Destination();
+        resolveNoEffect(f,destination);var s=attempts.findHistory(f.plan(),f.action()).getFirst();
+        var locked=new CountDownLatch(1);var release=new CountDownLatch(1);var entered=new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(call->{
+            var result=call.callRealMethod();locked.countDown();assertTrue(release.await(5,TimeUnit.SECONDS));return result;
+        }).when(reconciliation).permitsProtectedRetry(s.executionId());
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            try {
+                var retry=pool.submit(()->service.execute(f.command(),destination));
+                assertTrue(locked.await(5,TimeUnit.SECONDS));
+                UUID key=jdbc.queryForObject("SELECT operation_key FROM execution_attempt WHERE execution_id=?",UUID.class,s.executionId());
+                // Representa la aplicación tardía del primer ejecutor en el mismo destinatario.
+                destination.results.put(key,"late-result");destination.effects.incrementAndGet();
+                var report=pool.submit(()->{entered.countDown();return evidence.report(UUID.randomUUID(),s.ownership(),EFFECT_APPLIED,"late-result",Instant.now());});
+                assertTrue(entered.await(5,TimeUnit.SECONDS));release.countDown();
+                assertEquals("COMPLETED",retry.get(10,TimeUnit.SECONDS).status());report.get(10,TimeUnit.SECONDS);
+            } finally { release.countDown(); }
+        }
+        assertEquals(1,destination.effects.get());assertEquals(2,attempts.findHistory(f.plan(),f.action()).size());
+        assertTrue(evidence.findByAttempt(s.executionId()).stream().anyMatch(e->e.outcome()==EFFECT_APPLIED));
+    }
+
+    /** Consulta vacía, incertidumbre, contradicción y revocación no producen nuevas ejecuciones. */
+    @Test @DisplayName("Recuperar resultados no crea intentos y respeta autorización y contradicciones")
+    void shouldRecoverOnlyAuthorizedUncontestedResults() {
+        var f=ExecutionRecoveryTestSupport.fixture(jdbc);var destination=new Destination();
+        assertTrue(service.recoverResult(f.command()).isEmpty());
+        assertTrue(attempts.findHistory(f.plan(),f.action()).isEmpty());
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM execution_operation WHERE plan_id=?",Integer.class,f.plan()));
+        service.execute(f.command(),destination);
+        assertTrue(service.recoverResult(f.command()).isPresent());
+        var s=attempts.findHistory(f.plan(),f.action()).getFirst();
+        evidence.report(UUID.randomUUID(),s.ownership(),NO_EFFECT_CONFIRMED,"contradictory",Instant.now());
+        assertTrue(service.recoverResult(f.command()).isEmpty());
+        jdbc.update("UPDATE authorizations SET revoked_at=CURRENT_TIMESTAMP WHERE authorization_id=?",f.executeAuthorization());
+        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,()->service.recoverResult(f.command()));
+        assertEquals(1,destination.effects.get());assertEquals(1,attempts.findHistory(f.plan(),f.action()).size());
+    }
+
+    /** El servicio captura una vez la solicitud y entrega los mismos bytes aunque cambie el adaptador. */
+    @Test @DisplayName("La solicitud enviada coincide con el snapshot persistido aunque cambie el adaptador")
+    void shouldExecuteCapturedImmutableRequest() {
+        var f=ExecutionRecoveryTestSupport.fixture(jdbc);
+        var original=new ExecutionRequest("immutable-destination","application/json","{\"value\":1}");
+        var current=new AtomicReference<>(original);var captures=new AtomicInteger();
+        var adapter=new IdempotentActionExecutor() {
+            /** Captura la configuración inicial una sola vez. */
+            public ExecutionRequest request() { captures.incrementAndGet();return current.get(); }
+            /** Cambia el estado del adaptador después de reservar la clave. */
+            public Lookup lookup(Context context) {
+                current.set(new ExecutionRequest("immutable-destination","application/json","{\"value\":2}"));
+                assertEquals(original,context.request());return new Lookup(Status.NOT_FOUND,null);
+            }
+            /** Solo utiliza el cuerpo recibido por contexto, que permanece inmutable. */
+            public String execute(Context context) {
+                assertArrayEquals(original.bodyBytes(),context.request().bodyBytes());
+                assertEquals(original.fingerprint(),context.operation().fingerprint());return "immutable-result";
+            }
+        };
+        assertEquals("COMPLETED",service.execute(f.command(),adapter).status());assertEquals(1,captures.get());
+        assertEquals(original.body(),jdbc.queryForObject("SELECT request_body FROM execution_operation WHERE plan_id=?",String.class,f.plan()));
     }
 
     /** Un resultado tardío exitoso se conserva aun cuando su propiedad ya no permite finalizar. */
