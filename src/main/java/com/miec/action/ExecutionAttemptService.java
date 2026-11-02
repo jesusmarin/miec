@@ -517,49 +517,6 @@ public class ExecutionAttemptService {
     }
 
     /**
-     * Inicia un intento pendiente y confirma su estado
-     * antes de que el coordinador produzca efectos.
-     *
-     * @param executionId identidad del intento
-     * @return intento actualizado
-     */
-    public AttemptSnapshot startAttempt(UUID executionId) {
-        Objects.requireNonNull(executionId);
-
-        return Objects.requireNonNull(
-                transaction.execute(status -> {
-                    AttemptSnapshot current = lockAttempt(executionId);
-
-                    if (current.status() != ExecutionStatus.PENDING) {
-                        throw new AttemptDeniedException(
-                                "IR-009: solamente PENDING puede iniciarse"
-                        );
-                    }
-
-                    int updated = jdbc.update(
-                            """
-                            UPDATE execution_attempt
-                            SET execution_status = ?,
-                                started_at = CURRENT_TIMESTAMP,
-                                version = version + 1
-                            WHERE execution_id = ?
-                              AND execution_status = ?
-                              AND version = ?
-                            """,
-                            ExecutionStatus.IN_PROGRESS.name(),
-                            executionId,
-                            ExecutionStatus.PENDING.name(),
-                            current.version()
-                    );
-
-                    requireUpdated(updated);
-
-                    return lockAttempt(executionId);
-                })
-        );
-    }
-
-    /**
      * Registra una ejecución finalizada satisfactoriamente.
      *
      * <p>Esta operación confirma el resultado en su propia
@@ -731,10 +688,24 @@ public class ExecutionAttemptService {
     }
 
     /**
-     * Inicia un intento con revalidación de plan y autorización.
-     * El bloqueo del plan precede al del intento y autorización.
-     * La aprobación no es una garantía frente a revocaciones posteriores
-     * al commit o frente a sistemas externos que no verifican permisos.
+     * Inicia un intento PENDING después de revalidar su planificación y
+     * la autorización vigente. Es el único punto de inicio del servicio.
+     *
+     * <p>Confirma IN_PROGRESS, started_at y el incremento de version en
+     * una transacción REQUIRES_NEW. Bloquea primero el plan, después el
+     * intento y finalmente la autorización. Un rechazo revierte los cambios.
+     *
+     * <p>No ejecuta efectos externos. La validación no garantiza protección
+     * frente a revocaciones posteriores a la confirmación de la transacción.
+     *
+     * @param executionId identificador del intento persistido
+     * @param actionType tipo que debe coincidir con la acción en el plan actual
+     * @return intento confirmado en IN_PROGRESS
+     * @throws NullPointerException si algún argumento es nulo
+     * @throws IllegalArgumentException si el tipo está vacío, supera 100
+     *         caracteres o el contrato JSON del plan es inválido
+     * @throws AttemptDeniedException si el intento no existe, no está PENDING,
+     *         la acción no pertenece al plan o la autorización no es válida
      */
     public AttemptSnapshot startAuthorizedAttempt(UUID executionId, String actionType) {
         Objects.requireNonNull(executionId, "executionId es obligatorio");

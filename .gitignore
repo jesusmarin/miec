@@ -32,3 +32,21 @@ build/
 ### VS Code ###
 .vscode/
 /src/main/resources/db/migration/
+
+### H2 databases and backups ###
+*.mv.db
+*.trace.db
+*.mv.db.*
+*.trace.db.*
+/data/backup/
+/data/backups/
+
+### Debug and execution logs ###
+*.log
+
+### Generated Maven configuration reports ###
+effective-pom*
+effective-settings*
+
+### Source code archive ###
+/miec-prototype-src.zip
