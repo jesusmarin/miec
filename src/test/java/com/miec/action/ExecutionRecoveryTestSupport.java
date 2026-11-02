@@ -39,11 +39,6 @@ public final class ExecutionRecoveryTestSupport {
         return new Fixture(plan,cycle,action,execute,review);
     }
 
-    /** Consulta el reloj interno para verificadores experimentales sin ampliar la API de producción. */
-    public static Instant databaseNow(ExecutionActivityService activity) {
-        return activity.databaseNow();
-    }
-
     /** Simula un lease vencido sin cambiar identidad ni generación del propietario. */
     static void expire(JdbcTemplate jdbc, UUID executionId) {
         jdbc.update("""

@@ -81,7 +81,7 @@ anterior ni su base. La clase IT está fuera de los patrones habituales de Suref
 ```
 
 Las pruebas de transporte del adaptador son PetClinicVisitExecutorTest.
-El verificador PetClinicEvidenceVerifier consulta el destinatario autenticado y
+La fuente experimental PetClinicEvidenceSource consulta el destinatario autenticado y
 solo genera evidencia EFFECT_APPLIED. Un 404 nunca produce NO_EFFECT_CONFIRMED.
 La referencia de ejecución es opaca (petclinic:visit:id); no se siguen URLs de respuesta.
 
@@ -109,10 +109,11 @@ del proceso, sin afirmar tolerancia a una pérdida de energía del equipo.
 
 ## Separación del experimento
 
-El adaptador, verificador y pruebas PetClinic están exclusivamente en
+El adaptador, fuente de evidencia y pruebas PetClinic están exclusivamente en
 src/test/java/com/miec/experiment/petclinic. No se incluyen en el JAR de
-producción. El verificador no tiene @Service: PetClinicProcessIT lo registra
-explícitamente mediante @Import. El núcleo conserva sus contratos genéricos.
+producción. PetClinicProcessIT importa explícitamente su configuración de fuente.
+DestinationEvidenceVerificationService selecciona esa fuente y registra la evidencia.
+El núcleo conserva sus contratos genéricos.
 ExecutionRecoveryTestSupport expone solamente soporte de test reutilizable.
 
 Después de trasladar clases desde src/main, ejecutar clean para eliminar los
