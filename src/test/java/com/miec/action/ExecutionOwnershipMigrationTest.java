@@ -18,7 +18,7 @@ class ExecutionOwnershipMigrationTest {
     void shouldMigrateEmptyDatabase() {
         String url = "jdbc:h2:mem:migration_" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1";
         var source = new SingleConnectionDataSource(url, "sa", "", true);
-        Flyway flyway = Flyway.configure().dataSource(source).load();
+        Flyway flyway = Flyway.configure().dataSource(source).target("004").load();
         assertEquals(4, flyway.migrate().migrationsExecuted);
         var jdbc = new JdbcTemplate(source);
         assertNotNull(jdbc.queryForObject("SELECT miec_wall_clock()", Object.class));
@@ -56,7 +56,7 @@ class ExecutionOwnershipMigrationTest {
                     pending || running ? null : java.sql.Timestamp.valueOf("2026-01-01 00:01:00"));
         }
         var before = jdbc.queryForList("SELECT * FROM execution_attempt ORDER BY execution_id");
-        assertEquals(1, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+        assertEquals(1, Flyway.configure().dataSource(source).target("004").load().migrate().migrationsExecuted);
         var after = jdbc.queryForList("SELECT * FROM execution_attempt ORDER BY execution_id");
         for (int i = 0; i < before.size(); i++) {
             for (var entry : before.get(i).entrySet()) assertEquals(entry.getValue(), after.get(i).get(entry.getKey()));

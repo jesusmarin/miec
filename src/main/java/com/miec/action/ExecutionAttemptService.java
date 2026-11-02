@@ -61,6 +61,7 @@ public class ExecutionAttemptService {
     private final AuthorizationPersistenceService authorizations;
     private final ExecutionRetryPolicy retryPolicy;
     private final ExecutionActivityService activity;
+    private final ExecutionReconciliationService reconciliations;
 
     /**
      * Representación de lectura de un intento persistido.
@@ -153,6 +154,7 @@ public class ExecutionAttemptService {
      * @param authorizations servicio IR-010
      * @param retryPolicy política de reintentos
      * @param activity identidad, reloj y vigencia de la propiedad
+     * @param reconciliations decisiones verificadas para la ruta de reintento protegido
      */
     public ExecutionAttemptService(
             JdbcTemplate jdbc,
@@ -161,7 +163,8 @@ public class ExecutionAttemptService {
             PlannedActionJsonV01 plannedJson,
             AuthorizationPersistenceService authorizations,
             ExecutionRetryPolicy retryPolicy,
-            ExecutionActivityService activity
+            ExecutionActivityService activity,
+            ExecutionReconciliationService reconciliations
     ) {
         this.jdbc = Objects.requireNonNull(jdbc);
         this.plannedPolicy = Objects.requireNonNull(plannedPolicy);
@@ -169,6 +172,7 @@ public class ExecutionAttemptService {
         this.authorizations = Objects.requireNonNull(authorizations);
         this.retryPolicy = Objects.requireNonNull(retryPolicy);
         this.activity = Objects.requireNonNull(activity);
+        this.reconciliations = Objects.requireNonNull(reconciliations);
 
         Objects.requireNonNull(manager);
 
@@ -410,6 +414,16 @@ public class ExecutionAttemptService {
     public AttemptSnapshot createAttempt(
             CreateAttemptCommand command
     ) {
+        return createAttemptInternal(command, null);
+    }
+
+    /** Vincula la clave idempotente registrada antes de producir cualquier efecto. */
+    AttemptSnapshot createProtectedAttempt(CreateAttemptCommand command, UUID operationKey) {
+        return createAttemptInternal(command, Objects.requireNonNull(operationKey));
+    }
+
+    /** Crea un intento bajo bloqueo del plan y comprueba su resolución de reconciliación. */
+    private AttemptSnapshot createAttemptInternal(CreateAttemptCommand command, UUID operationKey) {
         Objects.requireNonNull(
                 command, "command es obligatorio"
         );
@@ -458,6 +472,14 @@ public class ExecutionAttemptService {
                         );
                     }
 
+                    var registered = jdbc.query(
+                            "SELECT operation_key FROM execution_operation WHERE plan_id=? AND planned_action_id=?",
+                            (rs,row)->rs.getObject(1,UUID.class),command.planId(),command.plannedActionId());
+                    if ((operationKey != null && (registered.isEmpty() || !operationKey.equals(registered.getFirst())))
+                            || (operationKey == null && !registered.isEmpty())) {
+                        throw new AttemptDeniedException("IR-009: operation requires the protected idempotent route");
+                    }
+
                     lockAuthorization(command.authorizationId());
 
                     boolean authorized = isAuthorized(command);
@@ -476,10 +498,22 @@ public class ExecutionAttemptService {
                     int nextNumber = 1;
 
                     if (latest != null) {
+                        ExecutionStatus retryStatus = latest.status();
+                        EffectOutcome retryOutcome = latest.effectOutcome();
+                        if (operationKey != null && (latest.status() == ExecutionStatus.UNKNOWN
+                                || latest.status() == ExecutionStatus.IN_PROGRESS)) {
+                            UUID previousKey = jdbc.queryForObject(
+                                    "SELECT operation_key FROM execution_attempt WHERE execution_id=?",
+                                    UUID.class, latest.executionId());
+                            if (operationKey.equals(previousKey) && reconciliations.permitsProtectedRetry(latest.executionId())) {
+                                retryStatus = ExecutionStatus.FAILED;
+                                retryOutcome = EffectOutcome.NO_EFFECT_CONFIRMED;
+                            }
+                        }
                         var decision = retryPolicy.evaluate(
                                 new RetryRequest(
-                                        latest.status(),
-                                        latest.effectOutcome(),
+                                        retryStatus,
+                                        retryOutcome,
                                         latest.attemptNumber(),
                                         MAX_ATTEMPTS,
                                         authorized
@@ -509,9 +543,9 @@ public class ExecutionAttemptService {
                                 execution_status,
                                 effect_outcome,
                                 actor_id,
-                                version
+                                version, operation_key
                             )
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                             """,
                             executionId,
                             command.plannedActionId(),
@@ -521,7 +555,7 @@ public class ExecutionAttemptService {
                             nextNumber,
                             ExecutionStatus.PENDING.name(),
                             EffectOutcome.EFFECT_UNKNOWN.name(),
-                            command.actorId()
+                            command.actorId(), operationKey
                     );
 
                     if (inserted != 1) {
