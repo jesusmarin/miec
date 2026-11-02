@@ -26,6 +26,7 @@ public class AuthorizedActionExecutionService {
 
     private final ExecutionAttemptService attemptService;
     private final ExecutionHeartbeatSupervisor heartbeatSupervisor;
+    private final ExecutionEvidenceService evidenceService;
 
     /** Contrato de operación síncrona administrada por el coordinador. */
     @FunctionalInterface
@@ -78,9 +79,11 @@ public class AuthorizedActionExecutionService {
 
     public AuthorizedActionExecutionService(
             ExecutionAttemptService attemptService,
-            ExecutionHeartbeatSupervisor heartbeatSupervisor
+            ExecutionHeartbeatSupervisor heartbeatSupervisor,
+            ExecutionEvidenceService evidenceService
     ) {
         this.heartbeatSupervisor = Objects.requireNonNull(heartbeatSupervisor);
+        this.evidenceService = Objects.requireNonNull(evidenceService);
         this.attemptService = Objects.requireNonNull(
                 attemptService, "ExecutionAttemptService es obligatorio"
         );
@@ -128,6 +131,24 @@ public class AuthorizedActionExecutionService {
             ExecutionCommand command,
             ActionExecutor executor
     ) {
+        Objects.requireNonNull(executor, "executor es obligatorio");
+        return executeTracked(command, null, owner -> { executor.execute(); return null; });
+    }
+
+    /** Callback interno con credenciales y referencia al resultado del destinatario. */
+    @FunctionalInterface
+    interface OwnedExecutor {
+        /** Ejecuta una operación bajo la adquisición actual. */
+        String execute(ExecutionActivityService.Ownership owner);
+    }
+
+    /** Ruta interna que exige la clave idempotente registrada desde el primer intento. */
+    TrackedExecutionResult executeProtected(ExecutionCommand command, UUID operationKey, OwnedExecutor executor) {
+        return executeTracked(command, Objects.requireNonNull(operationKey), executor);
+    }
+
+    /** Coordina efectos, supervisión y evidencia sin inferir ausencia de un fallo. */
+    private TrackedExecutionResult executeTracked(ExecutionCommand command, UUID operationKey, OwnedExecutor executor) {
         Objects.requireNonNull(command, "command es obligatorio");
         Objects.requireNonNull(executor, "executor es obligatorio");
 
@@ -148,7 +169,8 @@ public class AuthorizedActionExecutionService {
 
         final AttemptSnapshot pending;
         try {
-            pending = attemptService.createAttempt(request);
+            pending = operationKey == null ? attemptService.createAttempt(request)
+                    : attemptService.createProtectedAttempt(request, operationKey);
         } catch (AttemptDeniedException ex) {
             throw new ExecutionDeniedException("IR-009: " + ex.getMessage(), ex);
         }
@@ -183,9 +205,12 @@ public class AuthorizedActionExecutionService {
             throw startFailure;
         }
 
+        String resultReference;
         try (var supervision = heartbeatSupervisor.supervise(started.ownership())) {
             try {
-                executor.execute();
+                resultReference = executor.execute(started.ownership());
+                recordReport(started.ownership(), ExecutionEvidenceService.Outcome.EFFECT_APPLIED,
+                        resultReference == null ? "execution-result:" + started.executionId() : resultReference);
             } catch (RuntimeException | Error executionFailure) {
                 supervision.close();
                 supervision.attachFailure(executionFailure);
@@ -194,6 +219,10 @@ public class AuthorizedActionExecutionService {
             supervision.close();
             supervision.checkHealthy();
         } catch (RuntimeException | Error failure) {
+            try {
+                recordReport(started.ownership(), ExecutionEvidenceService.Outcome.EFFECT_UNKNOWN,
+                        "execution-incident:" + started.executionId());
+            } catch (RuntimeException reportFailure) { failure.addSuppressed(reportFailure); }
             // La excepción NO demuestra que el efecto externo no sucedió.
             try {
                 attemptService.markUnknown(
@@ -208,7 +237,7 @@ public class AuthorizedActionExecutionService {
 
         final AttemptSnapshot completed;
         try {
-            completed = attemptService.completeAttempt(started.ownership(), null);
+            completed = attemptService.completeAttempt(started.ownership(), resultReference);
         } catch (RuntimeException persistenceFailure) {
             // El ejecutor ya pudo producir efectos. Bloquear reintentos;
             // si la persistencia de UNKNOWN falla, quedará IN_PROGRESS.
@@ -230,4 +259,12 @@ public class AuthorizedActionExecutionService {
                 completed.status().name()
         );
     }
+    /** Persiste reporte deduplicable incluso si venció el lease; nunca se marca como verificado. */
+    private void recordReport(ExecutionActivityService.Ownership owner, ExecutionEvidenceService.Outcome outcome,
+            String reference) {
+        UUID eventId = UUID.nameUUIDFromBytes((owner.executionId() + ":" + outcome.name())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        evidenceService.report(eventId, owner, outcome, reference, java.time.Instant.now());
+    }
+
 }
