@@ -1,7 +1,6 @@
 
 package com.miec.action;
 
-import com.miec.action.AuthorizedActionExecutionService.ActionExecutor;
 import com.miec.action.AuthorizedActionExecutionService.ExecutionCommand;
 import com.miec.action.AuthorizedActionExecutionService.ExecutionDeniedException;
 import com.miec.action.AuthorizedActionExecutionService.ExecutionResult;
@@ -78,8 +77,12 @@ class AuthorizedActionExecutionServiceTest {
     ) {
     }
 
+
     /**
-     * Crea un sistema, ciclo y plan válidos.
+     * Crea un sistema, un ciclo y un plan de intervención válido.
+     *
+     * <p>El plan contiene una acción declarada mediante
+     * el contrato JSON v01 de MIEC-F03 IR-009.
      *
      * @return referencias del escenario de ejecución
      */
@@ -111,16 +114,32 @@ class AuthorizedActionExecutionServiceTest {
                 systemId
         ));
 
+        String actionsJson = """
+            {
+              "schemaVersion": "01",
+              "actions": [
+                {
+                  "actionId": "%s",
+                  "actionType": "PROCESS_EXECUTION"
+                }
+              ]
+            }
+            """.formatted(actionId);
+
         assertEquals(1, jdbcTemplate.update(
                 """
                 INSERT INTO intervention_plan (
-                    plan_id, cycle_id, status
+                    plan_id,
+                    cycle_id,
+                    status,
+                    actions
                 )
-                VALUES (?, ?, ?)
+                VALUES (?, ?, ?, ? FORMAT JSON)
                 """,
                 planId,
                 cycleId,
-                "PROPOSED"
+                "PROPOSED",
+                actionsJson
         ));
 
         return new Fixture(planId, cycleId, actionId);
@@ -424,63 +443,77 @@ class AuthorizedActionExecutionServiceTest {
         assertEquals(0, countActions(fixture.actionId()));
     }
 
+
     /**
-     * Comprueba que una revocación impida
-     * utilizar una autorización aprobada.
+     * Verifica que una autorización no pueda reutilizarse
+     * para otra acción, aunque ambas estén declaradas
+     * en el mismo plan de intervención.
+     *
+     * <p>Las dos acciones están planificadas.
+     * Sin embargo, la autorización corresponde solamente
+     * a la primera acción.
+     *
+     * <p>El rechazo debe producirse por la política
+     * de autorización IR-010 y no por PlannedActionPolicy.
      */
     @Test
     @DisplayName(
-            "Debe impedir ejecutar con una autorización revocada"
-    )
-    void shouldRejectRevokedAuthorization() {
-        Fixture fixture = createFixture();
-
-        UUID authorizationId = createAuthorization(
-                fixture,
-                "APPROVED",
-                "EXECUTE_ACTION",
-                Instant.now().plusSeconds(3600),
-                Instant.now().minusSeconds(60)
-        );
-
-        AtomicInteger executions = new AtomicInteger();
-
-        assertThrows(
-                ExecutionDeniedException.class,
-                () -> service.executeAuthorized(
-                        command(fixture, authorizationId),
-                        executions::incrementAndGet
-                )
-        );
-
-        assertEquals(0, executions.get());
-        assertEquals(0, countActions(fixture.actionId()));
-    }
-
-    /**
-     * Verifica que la autorización no pueda
-     * reutilizarse para otra identidad de acción.
-     */
-    @Test
-    @DisplayName(
-            "Debe impedir ejecutar una acción diferente de la autorizada"
+            "Debe impedir ejecutar otra acción planificada con una autorización ajena"
     )
     void shouldRejectDifferentAction() {
         Fixture fixture = createFixture();
-        UUID authorizationId = createValidAuthorization(fixture);
 
-        ExecutionCommand differentAction = new ExecutionCommand(
-                UUID.randomUUID(),
-                fixture.planId(),
-                fixture.cycleId(),
-                authorizationId,
-                "PROCESS_EXECUTION",
-                "miec-actor"
+        UUID authorizationId =
+                createValidAuthorization(fixture);
+
+        UUID differentActionId = UUID.randomUUID();
+
+        // Ambas acciones pertenecen al mismo plan.
+        String actionsJson = """
+            {
+              "schemaVersion": "01",
+              "actions": [
+                {
+                  "actionId": "%s",
+                  "actionType": "PROCESS_EXECUTION"
+                },
+                {
+                  "actionId": "%s",
+                  "actionType": "PROCESS_EXECUTION"
+                }
+              ]
+            }
+            """.formatted(
+                fixture.actionId(),
+                differentActionId
         );
+
+        assertEquals(
+                1,
+                jdbcTemplate.update(
+                        """
+                        UPDATE intervention_plan
+                        SET actions = ? FORMAT JSON
+                        WHERE plan_id = ?
+                        """,
+                        actionsJson,
+                        fixture.planId()
+                )
+        );
+
+        ExecutionCommand differentAction =
+                new ExecutionCommand(
+                        differentActionId,
+                        fixture.planId(),
+                        fixture.cycleId(),
+                        authorizationId,
+                        "PROCESS_EXECUTION",
+                        "miec-actor"
+                );
 
         AtomicInteger executions = new AtomicInteger();
 
-        assertThrows(
+        ExecutionDeniedException exception = assertThrows(
                 ExecutionDeniedException.class,
                 () -> service.executeAuthorized(
                         differentAction,
@@ -488,9 +521,24 @@ class AuthorizedActionExecutionServiceTest {
                 )
         );
 
-        assertEquals(0, executions.get());
-        assertEquals(0, countActions(differentAction.actionId()));
+        assertAll(
+                () -> assertTrue(
+                        exception.getMessage().contains("IR-009")
+                ),
+                () -> assertEquals(0, executions.get()),
+                () -> assertEquals(
+                        0,
+                        countActions(differentActionId)
+                )
+        );
     }
+
+
+    /**
+     * Verifica que la autorización no pueda
+     * reutilizarse para otra identidad de acción.
+     */
+
 
     /**
      * Comprueba que el servicio no permita

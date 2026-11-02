@@ -4,7 +4,9 @@ package com.miec.action;
 import com.miec.authorization.AuthorizationPersistenceService;
 import com.miec.authorization.AuthorizationValidityPolicy.AuthorizationDecision;
 import com.miec.authorization.AuthorizationValidityPolicy.AuthorizationUseRequest;
-
+import com.miec.action.PlannedActionPolicy.ActionRequest;
+import com.miec.action.PlannedActionPolicy.Decision;
+import com.miec.action.PlannedActionPolicy.PlanSnapshot;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,7 +45,11 @@ public class AuthorizedActionExecutionService {
 
     private final JdbcTemplate jdbcTemplate;
     private final AuthorizationPersistenceService authorizationService;
+    /** Política de pertenencia de acciones a planes. */
+    private final PlannedActionPolicy plannedActionPolicy;
 
+    /** Intérprete del contrato JSON v01. */
+    private final PlannedActionJsonV01 plannedActionJson;
     /**
      * Contrato para ejecutar una acción previamente autorizada.
      *
@@ -61,7 +67,39 @@ public class AuthorizedActionExecutionService {
          */
         void execute();
     }
+    /**
+     * Construye el servicio de ejecución controlada.
+     *
+     * @param jdbcTemplate acceso JDBC
+     * @param authorizationService validador IR-010
+     * @param plannedActionPolicy política de acciones planificadas
+     * @param plannedActionJson intérprete JSON v01
+     */
+    public AuthorizedActionExecutionService(
+            JdbcTemplate jdbcTemplate,
+            AuthorizationPersistenceService authorizationService,
+            PlannedActionPolicy plannedActionPolicy,
+            PlannedActionJsonV01 plannedActionJson
+    ) {
+        this.jdbcTemplate = Objects.requireNonNull(
+                jdbcTemplate, "JdbcTemplate es obligatorio"
+        );
 
+        this.authorizationService = Objects.requireNonNull(
+                authorizationService,
+                "AuthorizationPersistenceService es obligatorio"
+        );
+
+        this.plannedActionPolicy = Objects.requireNonNull(
+                plannedActionPolicy,
+                "PlannedActionPolicy es obligatorio"
+        );
+
+        this.plannedActionJson = Objects.requireNonNull(
+                plannedActionJson,
+                "PlannedActionJsonV01 es obligatorio"
+        );
+    }
     /**
      * Solicitud de ejecución controlada.
      *
@@ -127,24 +165,7 @@ public class AuthorizedActionExecutionService {
         }
     }
 
-    /**
-     * Construye el servicio con sus dependencias.
-     *
-     * @param jdbcTemplate acceso JDBC obligatorio
-     * @param authorizationService servicio IR-010 obligatorio
-     */
-    public AuthorizedActionExecutionService(
-            JdbcTemplate jdbcTemplate,
-            AuthorizationPersistenceService authorizationService
-    ) {
-        this.jdbcTemplate = Objects.requireNonNull(
-                jdbcTemplate, "JdbcTemplate es obligatorio"
-        );
-        this.authorizationService = Objects.requireNonNull(
-                authorizationService,
-                "AuthorizationPersistenceService es obligatorio"
-        );
-    }
+
 
     /**
      * Valida y normaliza un texto obligatorio.
@@ -173,34 +194,46 @@ public class AuthorizedActionExecutionService {
         return result;
     }
 
+
     /**
-     * Bloquea el plan y recupera su ciclo propietario.
+     * Bloquea el plan durante la transacción y
+     * reconstruye su definición de acciones.
+     *
+     * <p>El bloqueo evita modificaciones concurrentes
+     * de la fila del plan por transacciones que
+     * respeten los bloqueos de la base de datos.
+     *
+     * <p>Un plan sin contrato JSON v01 válido
+     * no puede utilizarse para iniciar ejecuciones.
      *
      * @param planId identificador del plan
-     * @return ciclo propietario
-     * @throws ExecutionDeniedException si el plan no existe
+     * @return plan interpretado y validado
      */
-    private UUID lockPlan(UUID planId) {
-        List<UUID> cycles = jdbcTemplate.query(
+    private PlanSnapshot lockPlan(UUID planId) {
+        List<PlanSnapshot> plans = jdbcTemplate.query(
                 """
-                SELECT cycle_id
+                SELECT plan_id, cycle_id, actions
                 FROM intervention_plan
                 WHERE plan_id = ?
                 FOR UPDATE
                 """,
-                (rs, row) ->
+                (rs, row) -> plannedActionJson.parse(
+                        rs.getObject("plan_id", UUID.class),
                         rs.getObject("cycle_id", UUID.class),
+                        rs.getString("actions")
+                ),
                 planId
         );
 
-        if (cycles.isEmpty()) {
+        if (plans.isEmpty()) {
             throw new ExecutionDeniedException(
-                    "El plan de intervención no existe"
+                    "IR-009: el plan de intervención no existe"
             );
         }
 
-        return cycles.getFirst();
+        return plans.getFirst();
     }
+
 
     /**
      * Bloquea la autorización durante la comprobación
@@ -263,16 +296,58 @@ public class AuthorizedActionExecutionService {
             ExecutionCommand command,
             ActionExecutor executor
     ) {
+
         Objects.requireNonNull(command, "command es obligatorio");
         Objects.requireNonNull(executor, "executor es obligatorio");
 
-        UUID planCycleId = lockPlan(command.planId());
 
-        if (!planCycleId.equals(command.cycleId())) {
+// 1. Bloquear y recuperar el plan.
+        PlanSnapshot plan;
+
+        try {
+            plan = lockPlan(command.planId());
+        } catch (IllegalArgumentException exception) {
+            throw new ExecutionDeniedException(
+                    "IR-009: contrato de acciones inválido: "
+                            + exception.getMessage()
+            );
+        }
+
+// 2. Comprobar pertenencia al ciclo.
+        if (!plan.cycleId().equals(command.cycleId())) {
             throw new ExecutionDeniedException(
                     "IR-005: el plan pertenece a otro ciclo"
             );
         }
+
+// 3. Verificar que la acción realmente esté planificada.
+        ActionRequest actionRequest = new ActionRequest(
+                command.planId(),
+                command.cycleId(),
+                command.actionId(),
+                command.actionType()
+        );
+
+        Decision plannedDecision = plannedActionPolicy.evaluate(
+                plan,
+                actionRequest
+        );
+
+        if (!plannedDecision.allowed()) {
+            throw new ExecutionDeniedException(
+                    "IR-009: acción no planificada: "
+                            + plannedDecision.reason()
+            );
+        }
+
+// 4. Continuar con la autorización IR-010.
+// Se conserva aquí el código existente:
+// lockAuthorization(command.authorizationId());
+// authorizationService.evaluate(...)
+// INSERT executed_action ...
+// executor.execute();
+// UPDATE executed_action ...
+
 
         lockAuthorization(command.authorizationId());
 
