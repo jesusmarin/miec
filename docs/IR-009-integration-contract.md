@@ -128,3 +128,11 @@ No se añadió un adaptador productivo de dominio ni una dependencia del núcleo
 los experimentos. El soporte de pruebas compartido se reutiliza en este repositorio;
 para distribuirlo a otros repositorios como dependencia Maven hará falta publicar
 un módulo de soporte de pruebas, que no forma parte de esta entrega.
+
+## Validación posterior del JAR compartido
+
+PetClinic ya consume miec-recipient-sdk por Maven para modelos y validaciones; el
+adaptador experimental de MIEC utiliza el mismo JAR con scope test. El alcance,
+las pruebas y el cierre técnico experimental se describen en
+[IR-009-C09-sdk-validation.md](IR-009-C09-sdk-validation.md). Las interfaces SDK-03
+y las garantías productivas pendientes no se consideran completadas por esa prueba.

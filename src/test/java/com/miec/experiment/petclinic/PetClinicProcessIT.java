@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.net.*;
 import java.net.http.*;
 import java.nio.file.*;
-import java.sql.DriverManager;
 import java.time.*;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -66,7 +65,7 @@ class PetClinicProcessIT {
 
     /** Consulta el archivo después de cerrar el proceso para contar efectos durables reales. */
     private void assertSingleDurableVisit(String database,String description,UUID key) throws Exception {
-        try(var connection=DriverManager.getConnection(database+";IFEXISTS=TRUE;ACCESS_MODE_DATA=r","sa","");
+        try(var connection=PetClinicTestServer.openDatabaseAfterExit(database);
             var visits=connection.prepareStatement("SELECT COUNT(*) FROM visits WHERE description=?");
             var keys=connection.prepareStatement("SELECT COUNT(*) FROM miec_visit_operations WHERE operation_key=?")) {
             visits.setString(1,description);keys.setObject(1,key);

@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.net.*;
 import java.net.http.*;
 import java.nio.file.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
@@ -17,6 +20,23 @@ record PetClinicTestServer(Process process, URI uri) implements AutoCloseable {
         Path jar = Path.of(configured).toAbsolutePath();
         assertTrue(Files.isRegularFile(jar));
         return jar;
+    }
+
+    /**
+     * Abre el archivo solo después de terminar la JVM propia. Windows puede liberar
+     * su bloqueo después del evento de salida. Solo reintenta H2 90020 por hasta
+     * cinco segundos; otros errores y las aserciones de durabilidad no se repiten.
+     */
+    static Connection openDatabaseAfterExit(String database) throws SQLException, InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (true) {
+            try {
+                return DriverManager.getConnection(database + ";IFEXISTS=TRUE;ACCESS_MODE_DATA=r", "sa", "");
+            } catch (SQLException failure) {
+                if (failure.getErrorCode() != 90020 || System.nanoTime() >= deadline) throw failure;
+                TimeUnit.MILLISECONDS.sleep(25);
+            }
+        }
     }
 
     /** Inicia un perfil aislado, conserva logs y espera salud real con límite temporal. */
