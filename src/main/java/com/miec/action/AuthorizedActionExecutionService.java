@@ -1,115 +1,38 @@
-
 package com.miec.action;
 
-import com.miec.authorization.AuthorizationPersistenceService;
-import com.miec.authorization.AuthorizationValidityPolicy.AuthorizationDecision;
-import com.miec.authorization.AuthorizationValidityPolicy.AuthorizationUseRequest;
-import com.miec.action.PlannedActionPolicy.ActionRequest;
-import com.miec.action.PlannedActionPolicy.Decision;
-import com.miec.action.PlannedActionPolicy.PlanSnapshot;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.miec.action.ExecutionAttemptService.AttemptDeniedException;
+import com.miec.action.ExecutionAttemptService.AttemptSnapshot;
+import com.miec.action.ExecutionAttemptService.CreateAttemptCommand;
+import com.miec.action.ExecutionRetryPolicy.ExecutionStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.time.Instant;
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Servicio de aplicación para la ejecución autorizada
- * de acciones de MIEC-F03.
+ * MIEC-F03 IR-009: punto único de entrada para ejecución autorizada.
  *
- * <p>Implementa IR-009 y reutiliza:
- * <ul>
- *   <li>IR-005: acción y plan pertenecen al mismo ciclo.</li>
- *   <li>IR-008: autorización vinculada a un plan existente.</li>
- *   <li>IR-010: alcance, estado y vigencia.</li>
- * </ul>
+ * <p>Ambos métodos públicos delegan en el mismo flujo de intentos:
+ * {@code execution_attempt}. No se generan nuevos registros en
+ * {@code executed_action}; sus registros históricos son protegidos
+ * por ExecutionAttemptService durante la creación del intento.
  *
- * <p>El servicio verifica la autorización antes de
- * invocar el ejecutor y registra el resultado en
- * la tabla executed_action.
- *
- * <p>Utiliza bloqueos de fila y una transacción para
- * coordinar las operaciones de base de datos.
- *
- * <p>Los efectos externos del ejecutor no pueden
- * revertirse automáticamente mediante esta transacción.
+ * <p>Los efectos externos no son atómicos con la auditoría JDBC.
+ * La recuperación de resultados inciertos requiere reconciliación.
  */
 @Service
 public class AuthorizedActionExecutionService {
 
-    /** Alcance exigido para ejecutar una acción. */
-    private static final String EXECUTE_SCOPE = "EXECUTE_ACTION";
+    private final ExecutionAttemptService attemptService;
 
-    private final JdbcTemplate jdbcTemplate;
-    private final AuthorizationPersistenceService authorizationService;
-    /** Política de pertenencia de acciones a planes. */
-    private final PlannedActionPolicy plannedActionPolicy;
-
-    /** Intérprete del contrato JSON v01. */
-    private final PlannedActionJsonV01 plannedActionJson;
-    /**
-     * Contrato para ejecutar una acción previamente autorizada.
-     *
-     * <p>Las implementaciones deben ser síncronas.
-     * Para esta primera versión se recomienda que sus
-     * efectos participen en la misma transacción.
-     */
+    /** Contrato de operación síncrona administrada por el coordinador. */
     @FunctionalInterface
     public interface ActionExecutor {
-
-        /**
-         * Ejecuta la operación concreta.
-         *
-         * @throws RuntimeException si la ejecución falla
-         */
         void execute();
     }
-    /**
-     * Construye el servicio de ejecución controlada.
-     *
-     * @param jdbcTemplate acceso JDBC
-     * @param authorizationService validador IR-010
-     * @param plannedActionPolicy política de acciones planificadas
-     * @param plannedActionJson intérprete JSON v01
-     */
-    public AuthorizedActionExecutionService(
-            JdbcTemplate jdbcTemplate,
-            AuthorizationPersistenceService authorizationService,
-            PlannedActionPolicy plannedActionPolicy,
-            PlannedActionJsonV01 plannedActionJson
-    ) {
-        this.jdbcTemplate = Objects.requireNonNull(
-                jdbcTemplate, "JdbcTemplate es obligatorio"
-        );
 
-        this.authorizationService = Objects.requireNonNull(
-                authorizationService,
-                "AuthorizationPersistenceService es obligatorio"
-        );
-
-        this.plannedActionPolicy = Objects.requireNonNull(
-                plannedActionPolicy,
-                "PlannedActionPolicy es obligatorio"
-        );
-
-        this.plannedActionJson = Objects.requireNonNull(
-                plannedActionJson,
-                "PlannedActionJsonV01 es obligatorio"
-        );
-    }
-    /**
-     * Solicitud de ejecución controlada.
-     *
-     * @param actionId identificador de la acción
-     * @param planId plan que contiene la acción
-     * @param cycleId ciclo al que pertenece
-     * @param authorizationId autorización que se utilizará
-     * @param actionType tipo de acción
-     * @param actorId identificador del ejecutor
-     */
+    /** Solicitud de ejecución autorizada. */
     public record ExecutionCommand(
             UUID actionId,
             UUID planId,
@@ -118,314 +41,182 @@ public class AuthorizedActionExecutionService {
             String actionType,
             String actorId
     ) {
-
-        /**
-         * Valida las referencias obligatorias.
-         */
         public ExecutionCommand {
             Objects.requireNonNull(actionId, "actionId es obligatorio");
             Objects.requireNonNull(planId, "planId es obligatorio");
             Objects.requireNonNull(cycleId, "cycleId es obligatorio");
-            Objects.requireNonNull(
-                    authorizationId,
-                    "authorizationId es obligatorio"
-            );
-
+            Objects.requireNonNull(authorizationId, "authorizationId es obligatorio");
             actionType = requireText(actionType, "actionType", 100);
             actorId = requireText(actorId, "actorId", 255);
         }
     }
 
-    /**
-     * Resultado de una acción finalizada.
-     *
-     * @param actionId identificador de la acción
-     * @param status estado final registrado
-     */
-    public record ExecutionResult(
+    /** Respuesta compatible con el método anterior. */
+    public record ExecutionResult(UUID actionId, String status) {
+    }
+
+    /** Resultado que expone la identidad del intento. */
+    public record TrackedExecutionResult(
+            UUID executionId,
             UUID actionId,
+            int attemptNumber,
             String status
     ) {
     }
 
-    /**
-     * Excepción que identifica un rechazo de autorización
-     * o una incompatibilidad con el contexto de ejecución.
-     */
-    public static class ExecutionDeniedException
-            extends RuntimeException {
-
-        /**
-         * Construye una denegación justificada.
-         *
-         * @param message explicación del rechazo
-         */
+    /** Rechazo por incumplimiento de las reglas de ejecución. */
+    public static class ExecutionDeniedException extends RuntimeException {
         public ExecutionDeniedException(String message) {
             super(message);
         }
+
+        public ExecutionDeniedException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
-
-
-    /**
-     * Valida y normaliza un texto obligatorio.
-     *
-     * @param value texto recibido
-     * @param field nombre del campo
-     * @param maxLength longitud máxima
-     * @return texto normalizado
-     */
-    private static String requireText(
-            String value,
-            String field,
-            int maxLength
+    public AuthorizedActionExecutionService(
+            ExecutionAttemptService attemptService
     ) {
+        this.attemptService = Objects.requireNonNull(
+                attemptService, "ExecutionAttemptService es obligatorio"
+        );
+    }
+
+    private static String requireText(String value, String field, int maximum) {
         Objects.requireNonNull(value, field + " es obligatorio");
-
-        String result = value.trim();
-
-        if (result.isEmpty() || result.length() > maxLength) {
+        String normalized = value.trim();
+        if (normalized.isEmpty() || normalized.length() > maximum) {
             throw new IllegalArgumentException(
-                    field + " debe contener entre 1 y "
-                            + maxLength + " caracteres"
+                    field + " debe contener entre 1 y " + maximum + " caracteres"
             );
         }
-
-        return result;
-    }
-
-
-    /**
-     * Bloquea el plan durante la transacción y
-     * reconstruye su definición de acciones.
-     *
-     * <p>El bloqueo evita modificaciones concurrentes
-     * de la fila del plan por transacciones que
-     * respeten los bloqueos de la base de datos.
-     *
-     * <p>Un plan sin contrato JSON v01 válido
-     * no puede utilizarse para iniciar ejecuciones.
-     *
-     * @param planId identificador del plan
-     * @return plan interpretado y validado
-     */
-    private PlanSnapshot lockPlan(UUID planId) {
-        List<PlanSnapshot> plans = jdbcTemplate.query(
-                """
-                SELECT plan_id, cycle_id, actions
-                FROM intervention_plan
-                WHERE plan_id = ?
-                FOR UPDATE
-                """,
-                (rs, row) -> plannedActionJson.parse(
-                        rs.getObject("plan_id", UUID.class),
-                        rs.getObject("cycle_id", UUID.class),
-                        rs.getString("actions")
-                ),
-                planId
-        );
-
-        if (plans.isEmpty()) {
-            throw new ExecutionDeniedException(
-                    "IR-009: el plan de intervención no existe"
-            );
-        }
-
-        return plans.getFirst();
-    }
-
-
-    /**
-     * Bloquea la autorización durante la comprobación
-     * y ejecución transaccional.
-     *
-     * <p>Coordina la operación con actualizaciones
-     * concurrentes de esa misma fila.
-     *
-     * @param authorizationId identificador solicitado
-     */
-    private void lockAuthorization(UUID authorizationId) {
-        List<UUID> ids = jdbcTemplate.query(
-                """
-                SELECT authorization_id
-                FROM authorizations
-                WHERE authorization_id = ?
-                FOR UPDATE
-                """,
-                (rs, row) ->
-                        rs.getObject("authorization_id", UUID.class),
-                authorizationId
-        );
-
-        if (ids.isEmpty()) {
-            throw new ExecutionDeniedException(
-                    "La autorización no existe"
-            );
-        }
+        return normalized;
     }
 
     /**
-     * Ejecuta una acción solamente después de
-     * comprobar una autorización válida.
-     *
-     * <p>Secuencia:
-     * <ol>
-     *   <li>Bloquea el plan y comprueba su ciclo.</li>
-     *   <li>Bloquea la autorización indicada.</li>
-     *   <li>Consulta la política IR-010.</li>
-     *   <li>Inserta la acción en estado IN_PROGRESS.</li>
-     *   <li>Invoca el ejecutor.</li>
-     *   <li>Marca la acción como COMPLETED.</li>
-     * </ol>
-     *
-     * <p>El registro inicial impide ejecutar dos veces
-     * el mismo actionId mediante esta operación, gracias
-     * a la clave primaria de executed_action.
-     *
-     * <p>Si el ejecutor falla, la transacción revierte
-     * sus modificaciones de base de datos. No se asume
-     * que pueda deshacer efectos externos.
-     *
-     * @param command solicitud de ejecución
-     * @param executor implementación de la acción
-     * @return resultado de la operación
-     * @throws ExecutionDeniedException si no está autorizada
+     * Contrato heredado: ahora usa exactamente el mismo flujo que el
+     * método con trazabilidad. Ya no escribe en executed_action.
      */
-    @Transactional
     public ExecutionResult executeAuthorized(
             ExecutionCommand command,
             ActionExecutor executor
     ) {
+        TrackedExecutionResult result = executeAuthorizedTracked(command, executor);
+        return new ExecutionResult(result.actionId(), result.status());
+    }
 
+    /**
+     * Coordina un intento de ejecución autorizado.
+     *
+     * <p>No admite una transacción exterior activa: la auditoría usa
+     * transacciones independientes REQUIRES_NEW y una transacción de
+     * negocio exterior podría revertirse después de registrar COMPLETED.
+     *
+     * <p>La autorización se revalida en startAuthorizedAttempt(),
+     * inmediatamente antes de invocar el ejecutor. Una revocación
+     * posterior al inicio no puede impedir por sí sola efectos externos:
+     * ese caso requiere coordinación con el destinatario.
+     *
+     * @throws ExecutionDeniedException si la política deniega el intento
+     * @throws RuntimeException si falla la ejecución o la persistencia
+     */
+    public TrackedExecutionResult executeAuthorizedTracked(
+            ExecutionCommand command,
+            ActionExecutor executor
+    ) {
         Objects.requireNonNull(command, "command es obligatorio");
         Objects.requireNonNull(executor, "executor es obligatorio");
 
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "IR-009: no se admite una transacción externa activa"
+            );
+        }
 
-// 1. Bloquear y recuperar el plan.
-        PlanSnapshot plan;
+        CreateAttemptCommand request = new CreateAttemptCommand(
+                command.actionId(),
+                command.planId(),
+                command.cycleId(),
+                command.authorizationId(),
+                command.actionType(),
+                command.actorId()
+        );
+
+        final AttemptSnapshot pending;
+        try {
+            pending = attemptService.createAttempt(request);
+        } catch (AttemptDeniedException ex) {
+            throw new ExecutionDeniedException("IR-009: " + ex.getMessage(), ex);
+        }
+
+        final AttemptSnapshot started;
+        try {
+            // Revalida plan, acción y autorización con bloqueos JDBC.
+            started = attemptService.startAuthorizedAttempt(
+                    pending.executionId(), command.actionType()
+            );
+            if (started.status() != ExecutionStatus.IN_PROGRESS) {
+                throw new ExecutionDeniedException(
+                        "IR-009: el intento no alcanzó IN_PROGRESS"
+                );
+            }
+        } catch (RuntimeException startFailure) {
+            // Aún no se llamó al ejecutor: se puede confirmar ausencia
+            // de efectos del intento actual sin deducirla de un timeout.
+            try {
+                attemptService.rejectPendingBeforeExecution(
+                        pending.executionId(),
+                        "start-rejected:" + pending.executionId()
+                );
+            } catch (RuntimeException auditFailure) {
+                startFailure.addSuppressed(auditFailure);
+            }
+            if (startFailure instanceof AttemptDeniedException) {
+                throw new ExecutionDeniedException(
+                        "IR-009: " + startFailure.getMessage(), startFailure
+                );
+            }
+            throw startFailure;
+        }
 
         try {
-            plan = lockPlan(command.planId());
-        } catch (IllegalArgumentException exception) {
-            throw new ExecutionDeniedException(
-                    "IR-009: contrato de acciones inválido: "
-                            + exception.getMessage()
-            );
-        }
-
-// 2. Comprobar pertenencia al ciclo.
-        if (!plan.cycleId().equals(command.cycleId())) {
-            throw new ExecutionDeniedException(
-                    "IR-005: el plan pertenece a otro ciclo"
-            );
-        }
-
-// 3. Verificar que la acción realmente esté planificada.
-        ActionRequest actionRequest = new ActionRequest(
-                command.planId(),
-                command.cycleId(),
-                command.actionId(),
-                command.actionType()
-        );
-
-        Decision plannedDecision = plannedActionPolicy.evaluate(
-                plan,
-                actionRequest
-        );
-
-        if (!plannedDecision.allowed()) {
-            throw new ExecutionDeniedException(
-                    "IR-009: acción no planificada: "
-                            + plannedDecision.reason()
-            );
-        }
-
-// 4. Continuar con la autorización IR-010.
-// Se conserva aquí el código existente:
-// lockAuthorization(command.authorizationId());
-// authorizationService.evaluate(...)
-// INSERT executed_action ...
-// executor.execute();
-// UPDATE executed_action ...
-
-
-        lockAuthorization(command.authorizationId());
-
-        AuthorizationUseRequest request =
-                new AuthorizationUseRequest(
-                        command.planId(),
-                        command.actionId(),
-                        EXECUTE_SCOPE,
-                        Instant.now()
+            executor.execute();
+        } catch (RuntimeException | Error failure) {
+            // La excepción NO demuestra que el efecto externo no sucedió.
+            try {
+                attemptService.markUnknown(
+                        started.executionId(),
+                        "execution-failure:" + started.executionId()
                 );
+            } catch (RuntimeException auditFailure) {
+                failure.addSuppressed(auditFailure);
+            }
+            throw failure;
+        }
 
-        AuthorizationDecision decision =
-                authorizationService.evaluate(
-                        command.authorizationId(),
-                        request
+        final AttemptSnapshot completed;
+        try {
+            completed = attemptService.completeAttempt(started.executionId(), null);
+        } catch (RuntimeException persistenceFailure) {
+            // El ejecutor ya pudo producir efectos. Bloquear reintentos;
+            // si la persistencia de UNKNOWN falla, quedará IN_PROGRESS.
+            try {
+                attemptService.markUnknown(
+                        started.executionId(),
+                        "completion-uncertain:" + started.executionId()
                 );
-
-        if (!decision.allowed()) {
-            throw new ExecutionDeniedException(
-                    "IR-009: ejecución denegada: "
-                            + decision.reason()
-            );
+            } catch (RuntimeException auditFailure) {
+                persistenceFailure.addSuppressed(auditFailure);
+            }
+            throw persistenceFailure;
         }
 
-        int inserted = jdbcTemplate.update(
-                """
-                INSERT INTO executed_action (
-                    action_id,
-                    plan_id,
-                    cycle_id,
-                    action_type,
-                    execution_status,
-                    started_at,
-                    actor_id,
-                    authorization_id
-                )
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
-                """,
-                command.actionId(),
-                command.planId(),
-                command.cycleId(),
-                command.actionType(),
-                "IN_PROGRESS",
-                command.actorId(),
-                command.authorizationId()
-        );
-
-        if (inserted != 1) {
-            throw new IllegalStateException(
-                    "No se pudo registrar el inicio de ejecución"
-            );
-        }
-
-        executor.execute();
-
-        int updated = jdbcTemplate.update(
-                """
-                UPDATE executed_action
-                SET execution_status = ?,
-                    completed_at = CURRENT_TIMESTAMP
-                WHERE action_id = ?
-                  AND execution_status = ?
-                """,
-                "COMPLETED",
-                command.actionId(),
-                "IN_PROGRESS"
-        );
-
-        if (updated != 1) {
-            throw new IllegalStateException(
-                    "No se pudo registrar la finalización"
-            );
-        }
-
-        return new ExecutionResult(
-                command.actionId(),
-                "COMPLETED"
+        return new TrackedExecutionResult(
+                completed.executionId(),
+                completed.plannedActionId(),
+                completed.attemptNumber(),
+                completed.status().name()
         );
     }
 }
-

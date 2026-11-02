@@ -12,8 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Objects;
@@ -49,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.*;
                 "spring.jpa.hibernate.ddl-auto=validate"
         }
 )
-@Transactional
+
 @DisplayName(
         "MIEC-F03 IR-009 - Autorización previa a la ejecución"
 )
@@ -249,17 +247,17 @@ class AuthorizedActionExecutionServiceTest {
     }
 
     /**
-     * Cuenta los registros de ejecución de una acción.
+     * Cuenta los intentos registrados para una acción.
      *
-     * @param actionId identificador consultado
-     * @return cantidad de registros
+     * @param actionId identidad de la acción planificada
+     * @return cantidad de intentos persistidos
      */
     private int countActions(UUID actionId) {
         Integer count = jdbcTemplate.queryForObject(
                 """
                 SELECT COUNT(*)
-                FROM executed_action
-                WHERE action_id = ?
+                FROM execution_attempt
+                WHERE planned_action_id = ?
                 """,
                 Integer.class,
                 actionId
@@ -267,6 +265,7 @@ class AuthorizedActionExecutionServiceTest {
 
         return Objects.requireNonNull(count);
     }
+
 
     /**
      * Comprueba la ejecución de una acción
@@ -307,8 +306,8 @@ class AuthorizedActionExecutionServiceTest {
                 jdbcTemplate.queryForObject(
                         """
                         SELECT authorization_id
-                        FROM executed_action
-                        WHERE action_id = ?
+                        FROM execution_attempt
+                        WHERE planned_action_id = ?
                         """,
                         UUID.class,
                         fixture.actionId()
@@ -599,7 +598,7 @@ class AuthorizedActionExecutionServiceTest {
         );
 
         assertThrows(
-                DataIntegrityViolationException.class,
+                ExecutionDeniedException.class,
                 () -> service.executeAuthorized(
                         command(fixture, authorizationId),
                         executions::incrementAndGet
