@@ -24,7 +24,7 @@ class ExecutionRecoveryMigrationTest {
                     VALUES (?,?,?,?,?,1,'UNKNOWN','EFFECT_UNKNOWN','legacy',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
                     """,execution,f.action(),f.plan(),f.cycle(),f.executeAuthorization());
             var before=jdbc.queryForMap("SELECT * FROM execution_attempt WHERE execution_id=?",execution);
-            var flyway=Flyway.configure().dataSource(source).load();
+            var flyway=Flyway.configure().dataSource(source).target("007").load();
             assertEquals(3,flyway.migrate().migrationsExecuted);
             var after=jdbc.queryForMap("SELECT * FROM execution_attempt WHERE execution_id=?",execution);
             before.forEach((key,value)->assertEquals(value,after.get(key)));

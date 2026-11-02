@@ -18,13 +18,25 @@ class ExecutionOperationRegistryTest {
     @Test @DisplayName("Clave estable vinculada a solicitud, destinatario y autorización")
     void shouldBindKeyToImmutableRequest() {
         var f=ExecutionRecoveryTestSupport.fixture(jdbc);
-        var operation=registry.prepare(f.command(),"destination","a".repeat(64));
-        assertEquals(operation,registry.prepare(f.command(),"destination","a".repeat(64)));
-        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,()->registry.prepare(f.command(),"other","a".repeat(64)));
-        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,()->registry.prepare(f.command(),"destination","b".repeat(64)));
-        assertThrows(IllegalArgumentException.class,()->registry.prepare(f.command(),"destination","invalid"));
+        var operation=registry.prepare(f.command(),new ExecutionRequest("destination","application/json","{\"value\":1}"));
+        assertEquals(operation,registry.prepare(f.command(),new ExecutionRequest("destination","application/json","{\"value\":1}")));
+        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,()->registry.prepare(f.command(),new ExecutionRequest("other","application/json","{\"value\":1}")));
+        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,()->registry.prepare(f.command(),new ExecutionRequest("destination","application/json","{\"value\":2}")));
+        assertThrows(NullPointerException.class,()->registry.prepare(f.command(),new ExecutionRequest("destination","application/json",null)));
         jdbc.update("UPDATE authorizations SET revoked_at=CURRENT_TIMESTAMP WHERE authorization_id=?",f.executeAuthorization());
-        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,()->registry.prepare(f.command(),"destination","a".repeat(64)));
+        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,()->registry.prepare(f.command(),new ExecutionRequest("destination","application/json","{\"value\":1}")));
+    }
+
+    /** No fabrica un snapshot para claves históricas: permite consulta y rechaza ejecución. */
+    @Test @DisplayName("Una operación histórica sin cuerpo puede consultarse pero no reejecutarse")
+    void shouldKeepLegacyRequestUnknown() {
+        var f=ExecutionRecoveryTestSupport.fixture(jdbc);
+        var request=new ExecutionRequest("destination","application/json","{}");
+        registry.prepare(f.command(),request);
+        jdbc.update("UPDATE execution_operation SET request_format=NULL,request_media_type=NULL,request_body=NULL WHERE plan_id=?",f.plan());
+        assertNull(registry.findAuthorized(f.command()).orElseThrow().request());
+        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,()->registry.prepare(f.command(),request));
+        assertNull(jdbc.queryForObject("SELECT request_body FROM execution_operation WHERE plan_id=?",String.class,f.plan()));
     }
 
     /** Dos reservas concurrentes devuelven la misma identidad y una sola fila. */
@@ -33,7 +45,7 @@ class ExecutionOperationRegistryTest {
         var f=ExecutionRecoveryTestSupport.fixture(jdbc);
         try(var pool=Executors.newFixedThreadPool(2)) {
             var barrier=new CyclicBarrier(2);
-            Callable<ExecutionOperationRegistry.Operation> task=()->{barrier.await(5,TimeUnit.SECONDS);return registry.prepare(f.command(),"destination","a".repeat(64));};
+            Callable<ExecutionOperationRegistry.Operation> task=()->{barrier.await(5,TimeUnit.SECONDS);return registry.prepare(f.command(),new ExecutionRequest("destination","application/json","{\"value\":1}"));};
             var a=pool.submit(task);var b=pool.submit(task);
             assertEquals(a.get(10,TimeUnit.SECONDS),b.get(10,TimeUnit.SECONDS));
         }
