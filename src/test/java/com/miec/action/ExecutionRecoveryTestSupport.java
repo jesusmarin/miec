@@ -6,21 +6,21 @@ import java.time.Instant;
 import java.util.UUID;
 
 /** Escenarios independientes para las pruebas de evidencia y reconciliación. */
-final class ExecutionRecoveryTestSupport {
+public final class ExecutionRecoveryTestSupport {
     /** Referencias confirmadas y autorizaciones separadas para ejecutar y revisar. */
-    record Fixture(UUID plan, UUID cycle, UUID action, UUID executeAuthorization, UUID reviewAuthorization) {
+    public record Fixture(UUID plan, UUID cycle, UUID action, UUID executeAuthorization, UUID reviewAuthorization) {
         /** Construye el comando del servicio de intentos. */
         ExecutionAttemptService.CreateAttemptCommand attemptCommand() {
             return new ExecutionAttemptService.CreateAttemptCommand(action,plan,cycle,executeAuthorization,"PROCESS_EXECUTION","worker");
         }
         /** Construye el comando del coordinador. */
-        AuthorizedActionExecutionService.ExecutionCommand command() {
+        public AuthorizedActionExecutionService.ExecutionCommand command() {
             return new AuthorizedActionExecutionService.ExecutionCommand(action,plan,cycle,executeAuthorization,"PROCESS_EXECUTION","worker");
         }
     }
 
     /** Crea datos con UUID nuevos, visibles a transacciones REQUIRES_NEW. */
-    static Fixture fixture(JdbcTemplate jdbc) {
+    public static Fixture fixture(JdbcTemplate jdbc) {
         UUID system=UUID.randomUUID(), cycle=UUID.randomUUID(), plan=UUID.randomUUID(), action=UUID.randomUUID();
         UUID execute=UUID.randomUUID(), review=UUID.randomUUID();
         jdbc.update("INSERT INTO system_objective(system_id,name) VALUES (?,'recovery')",system);
@@ -37,6 +37,11 @@ final class ExecutionRecoveryTestSupport {
                     Timestamp.from(Instant.now().minusSeconds(60)),Timestamp.from(Instant.now().plusSeconds(3600)));
         }
         return new Fixture(plan,cycle,action,execute,review);
+    }
+
+    /** Consulta el reloj interno para verificadores experimentales sin ampliar la API de producción. */
+    public static Instant databaseNow(ExecutionActivityService activity) {
+        return activity.databaseNow();
     }
 
     /** Simula un lease vencido sin cambiar identidad ni generación del propietario. */
