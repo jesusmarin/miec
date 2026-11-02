@@ -30,10 +30,9 @@ import java.util.UUID;
  *   <li>Devuelve información para reconciliación posterior.</li>
  * </ul>
  *
- * <p>Limitación de esta versión: no dispone todavía de
- * heartbeats ni de identificación de instancias activas.
- * Una ejecución larga y legítima podría aparecer como
- * candidata a revisión.
+ * <p>Los intentos administrados se revisan por vencimiento de su lease.
+ * Los históricos sin propiedad conservan el criterio por started_at.
+ * Un heartbeat confirma actividad del supervisor, no progreso del trabajo.
  */
 @Service
 public class InterruptedExecutionDetectionService {
@@ -52,7 +51,8 @@ public class InterruptedExecutionDetectionService {
     public InterruptedExecutionDetectionService(
             JdbcTemplate jdbc
     ) {
-        this(jdbc, Clock.systemUTC());
+        this.jdbc = Objects.requireNonNull(jdbc);
+        this.clock = null;
     }
 
     /**
@@ -102,9 +102,49 @@ public class InterruptedExecutionDetectionService {
         }
     }
 
+    /** Clasificación de diagnóstico; no representa una transición ni permiso de reintento. */
+    public enum ActivityClassification { ACTIVA, REVISION, INDETERMINADA }
+
+    /** Identidad, clasificación y evidencia temporal de una ejecución en curso. */
+    public record ActivityDiagnostic(UUID executionId, ActivityClassification classification,
+            String executorId, Long fencingToken, Instant heartbeatAt, Instant leaseExpiresAt) { }
+
+    /** Lee el reloj del motor en producción o el reloj fijo inyectado para pruebas. */
+    private Instant now() {
+        return clock == null ? Objects.requireNonNull(jdbc.queryForObject("SELECT miec_wall_clock()",
+                (rs, row) -> rs.getTimestamp(1).toInstant())) : clock.instant();
+    }
+
     /**
-     * Busca intentos IN_PROGRESS cuya antigüedad
-     * sea igual o superior al umbral indicado.
+     * Clasifica hasta mil intentos en curso sin modificarlos. Un lease vigente
+     * acredita actividad; uno vencido exige revisión; la ausencia de propiedad
+     * señala un registro histórico indeterminado.
+     *
+     * @param maxResults máximo de resultados entre 1 y 1000
+     * @return diagnósticos inmutables ordenados por inicio e identificador
+     */
+    public List<ActivityDiagnostic> diagnose(int maxResults) {
+        if (maxResults < 1 || maxResults > MAX_RESULTS) throw new IllegalArgumentException("Límite inválido");
+        Instant now = now();
+        return List.copyOf(jdbc.query("""
+                SELECT execution_id,executor_id,fencing_token,heartbeat_at,lease_expires_at
+                FROM execution_attempt WHERE execution_status='IN_PROGRESS'
+                ORDER BY started_at,execution_id LIMIT ?
+                """, (rs, row) -> {
+            var expiry = rs.getTimestamp("lease_expires_at");
+            var heartbeat = rs.getTimestamp("heartbeat_at");
+            var classification = expiry == null ? ActivityClassification.INDETERMINADA
+                    : expiry.toInstant().isAfter(now) ? ActivityClassification.ACTIVA : ActivityClassification.REVISION;
+            return new ActivityDiagnostic(rs.getObject("execution_id", UUID.class), classification,
+                    rs.getString("executor_id"), rs.getObject("fencing_token", Long.class),
+                    heartbeat == null ? null : heartbeat.toInstant(), expiry == null ? null : expiry.toInstant());
+        }, maxResults));
+    }
+
+    /**
+     * Busca leases vencidos y registros históricos IN_PROGRESS cuya antigüedad
+     * sea igual o superior al umbral indicado. Un lease vigente queda excluido
+     * independientemente de la duración total de la ejecución.
      *
      * <p>No realiza transiciones de estado.
      *
@@ -134,7 +174,8 @@ public class InterruptedExecutionDetectionService {
             );
         }
 
-        Instant cutoff = clock.instant().minus(minimumAge);
+        Instant now = now();
+        Instant cutoff = now.minus(minimumAge);
 
         String sql = """
                 SELECT
@@ -145,7 +186,8 @@ public class InterruptedExecutionDetectionService {
                     started_at
                 FROM execution_attempt
                 WHERE execution_status = 'IN_PROGRESS'
-                  AND started_at <= ?
+                  AND ((executor_id IS NULL AND started_at <= ?)
+                    OR (executor_id IS NOT NULL AND lease_expires_at <= ?))
                 ORDER BY started_at ASC, execution_id ASC
                 LIMIT ?
                 """;
@@ -171,6 +213,7 @@ public class InterruptedExecutionDetectionService {
                         ).toInstant()
                 ),
                 Timestamp.from(cutoff),
+                Timestamp.from(now),
                 maxResults
         );
 

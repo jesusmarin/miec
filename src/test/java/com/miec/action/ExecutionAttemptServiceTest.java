@@ -255,10 +255,10 @@ class ExecutionAttemptServiceTest {
         var pending = service.createAttempt(command(fixture));
         service.startAuthorizedAttempt(pending.executionId(), "PROCESS_EXECUTION");
         switch (state) {
-            case "COMPLETED" -> service.completeAttempt(pending.executionId(), "result:test");
-            case "FAILED" -> service.failAttempt(pending.executionId(),
+            case "COMPLETED" -> service.completeAttempt(history(fixture).getLast().ownership(), "result:test");
+            case "FAILED" -> service.failAttempt(history(fixture).getLast().ownership(),
                     EffectOutcome.NO_EFFECT_CONFIRMED, "error:test");
-            case "UNKNOWN" -> service.markUnknown(pending.executionId(), "error:test");
+            case "UNKNOWN" -> service.markUnknown(history(fixture).getLast().ownership(), "error:test");
             default -> { }
         }
         var before = jdbc.queryForMap(
@@ -384,7 +384,7 @@ class ExecutionAttemptServiceTest {
 
         AttemptSnapshot completed =
                 service.completeAttempt(
-                        attempt.executionId(),
+                        history(fixture).getLast().ownership(),
                         "result:001"
                 );
 
@@ -430,7 +430,7 @@ class ExecutionAttemptServiceTest {
         service.startAuthorizedAttempt(first.executionId(), "PROCESS_EXECUTION");
 
         service.failAttempt(
-                first.executionId(),
+                history(fixture).getLast().ownership(),
                 EffectOutcome.NO_EFFECT_CONFIRMED,
                 "error:001"
         );
@@ -466,7 +466,7 @@ class ExecutionAttemptServiceTest {
         service.startAuthorizedAttempt(first.executionId(), "PROCESS_EXECUTION");
 
         service.markUnknown(
-                first.executionId(),
+                history(fixture).getLast().ownership(),
                 "timeout:001"
         );
 
@@ -524,7 +524,7 @@ class ExecutionAttemptServiceTest {
             service.startAuthorizedAttempt(attempt.executionId(), "PROCESS_EXECUTION");
 
             service.failAttempt(
-                    attempt.executionId(),
+                    history(fixture).getLast().ownership(),
                     EffectOutcome.NO_EFFECT_CONFIRMED,
                     "error:" + number
             );
@@ -834,7 +834,7 @@ class ExecutionAttemptServiceTest {
         service.startAuthorizedAttempt(first.executionId(), "PROCESS_EXECUTION");
 
         service.failAttempt(
-                first.executionId(),
+                history(fixture).getLast().ownership(),
                 EffectOutcome.NO_EFFECT_CONFIRMED,
                 "error:retriable-001"
         );

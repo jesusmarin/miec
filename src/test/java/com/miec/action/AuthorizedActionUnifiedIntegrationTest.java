@@ -1297,11 +1297,11 @@ class AuthorizedActionUnifiedIntegrationTest {
                 jdbc.update(
                         """
                         UPDATE execution_attempt
-                        SET started_at = ?
+                        SET started_at = ?, heartbeat_at = ?, lease_expires_at = ?
                         WHERE execution_id = ?
                         """,
-                        Timestamp.from(oldStartTime),
-                        oldStarted.executionId()
+                        Timestamp.from(oldStartTime), Timestamp.from(oldStartTime),
+                        Timestamp.from(oldStartTime.plusSeconds(30)), oldStarted.executionId()
                 )
         );
 

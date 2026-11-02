@@ -47,7 +47,7 @@ class InterruptedExecutionDetectionServiceFailureTest {
                 anyString(),
                 org.mockito.ArgumentMatchers
                         .<RowMapper<InterruptedExecutionDetectionService.ReviewCandidate>>any(),
-                eq(cutoff), eq(100));
+                eq(cutoff), eq(Timestamp.from(now)), eq(100));
 
         var failure = assertThrows(DataAccessResourceFailureException.class,
                 () -> detector.findCandidates(minimumAge, 100));
@@ -57,7 +57,7 @@ class InterruptedExecutionDetectionServiceFailureTest {
                 anyString(),
                 org.mockito.ArgumentMatchers
                         .<RowMapper<InterruptedExecutionDetectionService.ReviewCandidate>>any(),
-                eq(cutoff), eq(100));
+                eq(cutoff), eq(Timestamp.from(now)), eq(100));
         verifyNoMoreInteractions(jdbc);
     }
 }

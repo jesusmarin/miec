@@ -136,6 +136,22 @@ public class ExecutionAttemptEntity {
     )
     private String actorId;
 
+    /** Instancia y generación que adquirieron la propiedad mediante JDBC. */
+    @Column(name = "executor_id", length = 255)
+    private String executorId;
+
+    /** Token global de adquisición conservado para trazabilidad. */
+    @Column(name = "fencing_token")
+    private Long fencingToken;
+
+    /** Última renovación confirmada del supervisor. */
+    @Column(name = "heartbeat_at")
+    private Instant heartbeatAt;
+
+    /** Fin exclusivo de la vigencia de propiedad. */
+    @Column(name = "lease_expires_at")
+    private Instant leaseExpiresAt;
+
     /** Momento de inicio efectivo. */
     @Column(name = "started_at")
     private Instant startedAt;
