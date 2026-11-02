@@ -31,9 +31,9 @@ class PetClinicVisitExecutorTest {
     /** Serializa una respuesta válida del contrato para una operación concreta. */
     private String result(IdempotentActionExecutor.Context context) {
         return """
-                {"status":"APPLIED","operationKey":"%s","fingerprint":"%s","visitId":17,
+                {"status":"APPLIED","operationKey":"%s","destinationId":"%s","fingerprint":"%s","visitId":17,
                  "resultReference":"petclinic:visit:17","recordedAt":"%s"}
-                """.formatted(context.operation().key(),context.request().fingerprint(),Instant.now());
+                """.formatted(context.operation().key(),context.request().destinationId(),context.request().fingerprint(),Instant.now());
     }
 
     /** Contesta con JSON y cierra el intercambio de prueba. */
@@ -81,6 +81,12 @@ class PetClinicVisitExecutorTest {
             status.set(404);body.set("{\"code\":\"OTHER_RESOURCE_NOT_FOUND\"}");
             assertEquals(IdempotentActionExecutor.Status.UNKNOWN,adapter.lookup(context).status());
             status.set(200);body.set(result(context).replace(request.fingerprint(),"0".repeat(64)));
+            assertEquals(IdempotentActionExecutor.Status.UNKNOWN,adapter.lookup(context).status());
+            assertThrows(IllegalStateException.class,()->adapter.execute(context));
+            body.set(result(context).replace(request.destinationId(),"other-destination"));
+            assertEquals(IdempotentActionExecutor.Status.UNKNOWN,adapter.lookup(context).status());
+            assertThrows(IllegalStateException.class,()->adapter.execute(context));
+            body.set(result(context).replace(context.operation().key().toString(),UUID.randomUUID().toString()));
             assertEquals(IdempotentActionExecutor.Status.UNKNOWN,adapter.lookup(context).status());
             assertThrows(IllegalStateException.class,()->adapter.execute(context));
         } finally { server.stop(0); }

@@ -2,6 +2,10 @@ package com.miec.experiment.petclinic;
 
 import com.miec.action.ExecutionRequest;
 import com.miec.action.IdempotentActionExecutor;
+import com.miec.recipient.api.OperationPayload;
+import com.miec.recipient.api.OperationRequest;
+import com.miec.recipient.api.OperationResult;
+import com.miec.recipient.api.OperationStatus;
 import tools.jackson.databind.json.JsonMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -22,11 +26,12 @@ public final class PetClinicVisitExecutor implements IdempotentActionExecutor {
     private final URI baseUri;
     private final String apiKey;
     private final ExecutionRequest request;
+    private final OperationPayload payload;
     private final Duration timeout;
     private final HttpClient client;
 
     /** Respuesta vinculada a una clave y huella; la fecha remota no gobierna el lease de MIEC. */
-    private record RemoteResult(String status,UUID operationKey,String fingerprint,int visitId,
+    private record RemoteResult(String status,UUID operationKey,String destinationId,String fingerprint,int visitId,
                                 String resultReference,String recordedAt) { }
     /** Error estable; un 404 ajeno al contrato no equivale a NOT_FOUND. */
     private record RemoteError(String code,String message) { }
@@ -39,6 +44,8 @@ public final class PetClinicVisitExecutor implements IdempotentActionExecutor {
     public PetClinicVisitExecutor(URI baseUri,String apiKey,ExecutionRequest request,Duration timeout) {
         this.baseUri=Objects.requireNonNull(baseUri);this.apiKey=Objects.requireNonNull(apiKey);
         this.request=Objects.requireNonNull(request);this.timeout=Objects.requireNonNull(timeout);
+        this.payload=new OperationPayload(request.destinationId(),request.mediaType(),request.body());
+        if(!payload.fingerprint().equals(request.fingerprint())) throw new IllegalArgumentException("Representación de solicitud incompatible con SDK");
         String host=baseUri.getHost();
         boolean loopback="localhost".equalsIgnoreCase(host)||"127.0.0.1".equals(host)||"[::1]".equals(host)||"::1".equals(host);
         if(host==null||baseUri.getRawUserInfo()!=null||baseUri.getRawQuery()!=null||baseUri.getRawFragment()!=null
@@ -88,9 +95,9 @@ public final class PetClinicVisitExecutor implements IdempotentActionExecutor {
         checkContext(context);
         var message=builder("/miec/visits").header("Content-Type","application/json")
                 .header("Idempotency-Key",context.operation().key().toString())
-                .header("X-MIEC-Destination",request.destinationId()).header("X-MIEC-Fingerprint",request.fingerprint())
+                .header("X-MIEC-Destination",payload.destinationId()).header("X-MIEC-Fingerprint",payload.fingerprint())
                 .header("X-MIEC-Fencing-Token",Long.toString(context.ownership().fencingToken()))
-                .POST(HttpRequest.BodyPublishers.ofByteArray(request.bodyBytes())).build();
+                .POST(HttpRequest.BodyPublishers.ofByteArray(payload.bodyBytes())).build();
         try {
             var response=client.send(message,HttpResponse.BodyHandlers.ofString());
             if(response.statusCode()!=200&&response.statusCode()!=201) {
@@ -105,10 +112,19 @@ public final class PetClinicVisitExecutor implements IdempotentActionExecutor {
     /** Valida identidad, huella y referencia antes de aceptar una respuesta aplicada. */
     private RemoteResult validateResult(String body,Context context) {
         var result=JSON.readValue(body,RemoteResult.class);
-        if(result==null||!"APPLIED".equals(result.status())||!context.operation().key().equals(result.operationKey())
-                ||!request.fingerprint().equals(result.fingerprint())||result.visitId()<1
+        if(result==null||result.visitId()<1
                 ||!("petclinic:visit:"+result.visitId()).equals(result.resultReference())) {
             throw new IllegalStateException("PetClinic: respuesta incompatible con la operación");
+        }
+        try {
+            var confirmed=new OperationResult(result.operationKey(),result.destinationId(),result.fingerprint(),
+                    OperationStatus.valueOf(result.status()),result.resultReference());
+            var expected=new OperationRequest(context.operation().key(),payload);
+            if(confirmed.status()!=OperationStatus.APPLIED||!confirmed.matches(expected)) {
+                throw new IllegalStateException("Resultado ajeno a la solicitud");
+            }
+        } catch(RuntimeException invalid) {
+            throw new IllegalStateException("PetClinic: respuesta incompatible con el contrato SDK",invalid);
         }
         Instant.parse(result.recordedAt());
         return result;

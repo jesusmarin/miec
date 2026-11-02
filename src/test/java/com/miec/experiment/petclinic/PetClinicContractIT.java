@@ -3,7 +3,6 @@ package com.miec.experiment.petclinic;
 import com.miec.action.*;
 import com.miec.integration.contract.IdempotentDestinationContract;
 import java.nio.file.*;
-import java.sql.DriverManager;
 import java.time.*;
 import java.util.UUID;
 
@@ -27,7 +26,7 @@ class PetClinicContractIT extends IdempotentDestinationContract {
             /** Detiene la JVM propia y cuenta las visitas durables por SQL, no respuestas del adaptador. */
             public int effects() throws Exception {
                 server.close();
-                try (var connection = DriverManager.getConnection(database + ";IFEXISTS=TRUE;ACCESS_MODE_DATA=r", "sa", "");
+                try (var connection = PetClinicTestServer.openDatabaseAfterExit(database);
                      var query = connection.prepareStatement("SELECT COUNT(*) FROM visits WHERE description=?")) {
                     query.setString(1, description);
                     try (var rows = query.executeQuery()) { rows.next(); return rows.getInt(1); }
