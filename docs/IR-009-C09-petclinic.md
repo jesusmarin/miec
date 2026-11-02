@@ -119,3 +119,8 @@ Después de trasladar clases desde src/main, ejecutar clean para eliminar los
 .class antiguos antes de empaquetar; cambiar el paquete por sí solo no elimina
 los artefactos compilados previamente. Los comandos de pruebas anteriores
 siguen funcionando por nombre simple de clase.
+
+Validación de la reorganización: 669 pruebas habituales y una prueba entre
+procesos sin fallos; empaquetado correcto y revisión del JAR sin clases
+PetClinic ni com/miec/experiment. Registros locales:
+review-c09-isolation-regression.log y review-c09-isolation-process-it.log.
