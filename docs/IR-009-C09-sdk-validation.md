@@ -62,14 +62,31 @@ reconstruir ambos consumidores cuando se actualice el contrato compartido.
 MySqlIntegrationTests y PostgresIntegrationTests no se ejecutaron porque requieren
 contenedores. No se afirma validación de esos motores a partir de las pruebas H2.
 
-Estado de la última comprobación entre procesos: EN_CURSO_PROCESOS.
+Última comprobación entre procesos: 5 pruebas aprobadas, cero fallos, errores u
+omisiones. Cuatro pruebas de contrato compartido y una prueba real de pérdida de
+respuesta, verificación, reconciliación y reinicio conservaron la misma referencia,
+una operación y una visita durables.
+
+## Ajuste del soporte de pruebas en Windows
+
+La primera ejecución completó la consulta y el replay en la segunda JVM, pero la
+inspección SQL inmediata posterior a su terminación recibió H2 90020: archivo
+ocupado. La reapertura posterior del archivo confirmó una operación y una visita.
+
+El soporte común ahora espera, durante un máximo de cinco segundos, únicamente
+cuando la apertura posterior a la salida del proceso recibe ese código. No retrasa
+la terminación, no reintenta aserciones ni oculta otros errores SQL. WRITE_DELAY 0
+permanece configurado en PetClinic; no se sustituyó la durabilidad por una espera
+antes de terminar su JVM. Las cinco pruebas pasaron al repetirlas con el soporte
+ajustado. El resultado final está en review-sdk-petclinic-process-final.log; la
+primera ejecución se conserva en review-sdk-petclinic-process.log.
 
 ## Criterio de cierre
 
-Este punto puede cerrarse, dentro del alcance experimental C09, cuando también
-pasen las cuatro pruebas de contrato compartido y la prueba de pérdida de respuesta
-posterior a commit con reinicio en otra JVM: misma clave, referencia y un solo efecto
-durable, con verificación y reconciliación en MIEC.
+El punto de integración del JAR con PetClinic queda técnicamente validado y cerrado
+dentro del alcance experimental C09: pasaron las cuatro pruebas de contrato y la
+prueba de pérdida de respuesta posterior a commit con reinicio en otra JVM, con
+misma clave, referencia y un solo efecto durable, verificado y reconciliado en MIEC.
 
 Esto no cierra IR-009 completo ni SDK-03 y siguientes. Siguen pendientes las
 interfaces genéricas de ejecución/consulta, la aplicación de capacidades, el segundo
@@ -80,4 +97,5 @@ fencing del destinatario requieren el tratamiento ya documentado para producció
 Los logs locales de este incremento son review-sdk-petclinic-sdk.log,
 review-sdk-petclinic-contract.log, review-sdk-petclinic-adapter.log,
 review-sdk-petclinic-regression.log, review-sdk-miec-regression.log y
-review-sdk-petclinic-process.log. Están ignorados por Git.
+review-sdk-petclinic-process.log y review-sdk-petclinic-process-final.log. Están
+ignorados por Git.
