@@ -31,7 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
-/src/main/resources/db/migration/
 
 ### H2 databases and backups ###
 *.mv.db

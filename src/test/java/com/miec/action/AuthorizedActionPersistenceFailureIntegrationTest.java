@@ -263,7 +263,7 @@ class AuthorizedActionPersistenceFailureIntegrationTest {
                                 + "al persistir COMPLETED"
                 )
         ).when(attempts).completeAttempt(
-                any(UUID.class),
+                any(ExecutionActivityService.Ownership.class),
                 isNull()
         );
 
@@ -289,7 +289,7 @@ class AuthorizedActionPersistenceFailureIntegrationTest {
 
         // 4. Comprobar que la confirmación fue invocada.
         verify(attempts).completeAttempt(
-                any(UUID.class),
+                any(ExecutionActivityService.Ownership.class),
                 isNull()
         );
 
@@ -394,12 +394,12 @@ class AuthorizedActionPersistenceFailureIntegrationTest {
 
         doThrow(completionFailure)
                 .when(attempts)
-                .completeAttempt(any(UUID.class), isNull());
+                .completeAttempt(any(ExecutionActivityService.Ownership.class), isNull());
 
         doThrow(auditFailure)
                 .when(attempts)
                 .markUnknown(
-                        any(UUID.class),
+                        any(ExecutionActivityService.Ownership.class),
                         org.mockito.ArgumentMatchers.anyString()
                 );
 
@@ -436,9 +436,9 @@ class AuthorizedActionPersistenceFailureIntegrationTest {
                 () -> assertNull(attempt.completedAt())
         );
 
-        verify(attempts).completeAttempt(attempt.executionId(), null);
+        verify(attempts).completeAttempt(attempt.ownership(), null);
         verify(attempts).markUnknown(
-                attempt.executionId(),
+                attempt.ownership(),
                 "completion-uncertain:" + attempt.executionId()
         );
 

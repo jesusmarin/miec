@@ -60,6 +60,7 @@ public class ExecutionAttemptService {
     private final PlannedActionJsonV01 plannedJson;
     private final AuthorizationPersistenceService authorizations;
     private final ExecutionRetryPolicy retryPolicy;
+    private final ExecutionActivityService activity;
 
     /**
      * Representación de lectura de un intento persistido.
@@ -81,8 +82,19 @@ public class ExecutionAttemptService {
             Instant completedAt,
             String resultReference,
             String errorReference,
-            long version
+            long version,
+            String executorId,
+            Long fencingToken,
+            Instant heartbeatAt,
+            Instant leaseExpiresAt
     ) {
+        /** Devuelve las credenciales persistidas; un registro histórico carece de ellas. */
+        public ExecutionActivityService.Ownership ownership() {
+            if (executorId == null || fencingToken == null) {
+                throw new AttemptDeniedException("IR-009: intento sin propiedad administrada");
+            }
+            return new ExecutionActivityService.Ownership(executionId, executorId, fencingToken);
+        }
     }
 
     /**
@@ -140,6 +152,7 @@ public class ExecutionAttemptService {
      * @param plannedJson intérprete JSON v01
      * @param authorizations servicio IR-010
      * @param retryPolicy política de reintentos
+     * @param activity identidad, reloj y vigencia de la propiedad
      */
     public ExecutionAttemptService(
             JdbcTemplate jdbc,
@@ -147,13 +160,15 @@ public class ExecutionAttemptService {
             PlannedActionPolicy plannedPolicy,
             PlannedActionJsonV01 plannedJson,
             AuthorizationPersistenceService authorizations,
-            ExecutionRetryPolicy retryPolicy
+            ExecutionRetryPolicy retryPolicy,
+            ExecutionActivityService activity
     ) {
         this.jdbc = Objects.requireNonNull(jdbc);
         this.plannedPolicy = Objects.requireNonNull(plannedPolicy);
         this.plannedJson = Objects.requireNonNull(plannedJson);
         this.authorizations = Objects.requireNonNull(authorizations);
         this.retryPolicy = Objects.requireNonNull(retryPolicy);
+        this.activity = Objects.requireNonNull(activity);
 
         Objects.requireNonNull(manager);
 
@@ -221,7 +236,11 @@ public class ExecutionAttemptService {
                 toInstant(rs.getTimestamp("completed_at")),
                 rs.getString("result_reference"),
                 rs.getString("error_reference"),
-                rs.getLong("version")
+                rs.getLong("version"),
+                rs.getString("executor_id"),
+                rs.getObject("fencing_token", Long.class),
+                toInstant(rs.getTimestamp("heartbeat_at")),
+                toInstant(rs.getTimestamp("lease_expires_at"))
         );
     }
 
@@ -242,7 +261,7 @@ public class ExecutionAttemptService {
             completed_at,
             result_reference,
             error_reference,
-            version
+            version, executor_id, fencing_token, heartbeat_at, lease_expires_at
             """;
 
     /**
@@ -521,13 +540,17 @@ public class ExecutionAttemptService {
      *
      * <p>Esta operación confirma el resultado en su propia
      * transacción de auditoría.
+     *
+     * @param owner credenciales de la adquisición vigente
+     * @param resultReference referencia opcional al resultado
+     * @return intento terminal con trazabilidad de propiedad conservada
      */
     public AttemptSnapshot completeAttempt(
-            UUID executionId,
+            ExecutionActivityService.Ownership owner,
             String resultReference
     ) {
         return finish(
-                executionId,
+                owner,
                 ExecutionStatus.COMPLETED,
                 EffectOutcome.EFFECT_APPLIED,
                 resultReference,
@@ -543,9 +566,14 @@ public class ExecutionAttemptService {
      * efectivamente la ausencia de efectos.
      *
      * <p>Si existe incertidumbre, utilizar markUnknown().
+     *
+     * @param owner credenciales de la adquisición vigente
+     * @param outcome resultado conocido de efectos
+     * @param errorReference referencia obligatoria al incidente
+     * @return intento FAILED confirmado
      */
     public AttemptSnapshot failAttempt(
-            UUID executionId,
+            ExecutionActivityService.Ownership owner,
             EffectOutcome outcome,
             String errorReference
     ) {
@@ -558,7 +586,7 @@ public class ExecutionAttemptService {
         }
 
         return finish(
-                executionId,
+                owner,
                 ExecutionStatus.FAILED,
                 outcome,
                 null,
@@ -569,13 +597,17 @@ public class ExecutionAttemptService {
     /**
      * Registra un resultado incierto que no permite
      * reintentos automáticos.
+     *
+     * @param owner credenciales de la adquisición vigente
+     * @param errorReference referencia obligatoria al incidente
+     * @return intento UNKNOWN confirmado, o rechazo si la propiedad venció
      */
     public AttemptSnapshot markUnknown(
-            UUID executionId,
+            ExecutionActivityService.Ownership owner,
             String errorReference
     ) {
         return finish(
-                executionId,
+                owner,
                 ExecutionStatus.UNKNOWN,
                 EffectOutcome.EFFECT_UNKNOWN,
                 null,
@@ -589,15 +621,14 @@ public class ExecutionAttemptService {
      * <p>La transición solo se admite desde IN_PROGRESS.
      */
     private AttemptSnapshot finish(
-            UUID executionId,
+            ExecutionActivityService.Ownership owner,
             ExecutionStatus next,
             EffectOutcome outcome,
             String resultReference,
             String errorReference
     ) {
-        Objects.requireNonNull(
-                executionId, "executionId es obligatorio"
-        );
+        Objects.requireNonNull(owner, "owner es obligatorio");
+        UUID executionId = owner.executionId();
 
         if (resultReference != null) {
             resultReference = requireText(
@@ -618,26 +649,34 @@ public class ExecutionAttemptService {
                         );
                     }
 
+                    Instant now = activity.databaseNow();
+                    if (!owner.executorId().equals(current.executorId())
+                            || !Objects.equals(owner.fencingToken(), current.fencingToken())
+                            || current.leaseExpiresAt() == null || !current.leaseExpiresAt().isAfter(now)) {
+                        throw new AttemptDeniedException("IR-009: propiedad ausente o vencida al finalizar");
+                    }
                     int updated = jdbc.update(
                             """
                             UPDATE execution_attempt
                             SET execution_status = ?,
                                 effect_outcome = ?,
-                                completed_at = CURRENT_TIMESTAMP,
+                                completed_at = ?,
                                 result_reference = ?,
                                 error_reference = ?,
                                 version = version + 1
                             WHERE execution_id = ?
                               AND execution_status = ?
-                              AND version = ?
+                              AND version = ? AND executor_id = ? AND fencing_token = ?
+                              AND lease_expires_at > ?
                             """,
                             next.name(),
                             outcome.name(),
+                            Timestamp.from(now),
                             result,
                             errorReference,
                             executionId,
                             ExecutionStatus.IN_PROGRESS.name(),
-                            current.version()
+                            current.version(), owner.executorId(), owner.fencingToken(), Timestamp.from(now)
                     );
 
                     requireUpdated(updated);
@@ -751,15 +790,20 @@ public class ExecutionAttemptService {
                         "IR-010: autorización inválida: " + authorized.reason()
                 );
             }
+            Instant now = activity.databaseNow();
+            long token = activity.nextToken();
             requireUpdated(jdbc.update(
                     """
                     UPDATE execution_attempt
                     SET execution_status = 'IN_PROGRESS',
-                        started_at = CURRENT_TIMESTAMP,
+                        started_at = ?, executor_id = ?, fencing_token = ?,
+                        heartbeat_at = ?, lease_expires_at = ?,
                         version = version + 1
                     WHERE execution_id = ? AND execution_status = 'PENDING'
                       AND version = ?
                     """,
+                    Timestamp.from(now), activity.executorId(), token,
+                    Timestamp.from(now), Timestamp.from(now.plus(activity.leaseDuration())),
                     executionId, current.version()
             ));
             return lockAttempt(executionId);

@@ -25,6 +25,7 @@ import java.util.UUID;
 public class AuthorizedActionExecutionService {
 
     private final ExecutionAttemptService attemptService;
+    private final ExecutionHeartbeatSupervisor heartbeatSupervisor;
 
     /** Contrato de operación síncrona administrada por el coordinador. */
     @FunctionalInterface
@@ -76,8 +77,10 @@ public class AuthorizedActionExecutionService {
     }
 
     public AuthorizedActionExecutionService(
-            ExecutionAttemptService attemptService
+            ExecutionAttemptService attemptService,
+            ExecutionHeartbeatSupervisor heartbeatSupervisor
     ) {
+        this.heartbeatSupervisor = Objects.requireNonNull(heartbeatSupervisor);
         this.attemptService = Objects.requireNonNull(
                 attemptService, "ExecutionAttemptService es obligatorio"
         );
@@ -180,13 +183,21 @@ public class AuthorizedActionExecutionService {
             throw startFailure;
         }
 
-        try {
-            executor.execute();
+        try (var supervision = heartbeatSupervisor.supervise(started.ownership())) {
+            try {
+                executor.execute();
+            } catch (RuntimeException | Error executionFailure) {
+                supervision.close();
+                supervision.attachFailure(executionFailure);
+                throw executionFailure;
+            }
+            supervision.close();
+            supervision.checkHealthy();
         } catch (RuntimeException | Error failure) {
             // La excepción NO demuestra que el efecto externo no sucedió.
             try {
                 attemptService.markUnknown(
-                        started.executionId(),
+                        started.ownership(),
                         "execution-failure:" + started.executionId()
                 );
             } catch (RuntimeException auditFailure) {
@@ -197,13 +208,13 @@ public class AuthorizedActionExecutionService {
 
         final AttemptSnapshot completed;
         try {
-            completed = attemptService.completeAttempt(started.executionId(), null);
+            completed = attemptService.completeAttempt(started.ownership(), null);
         } catch (RuntimeException persistenceFailure) {
             // El ejecutor ya pudo producir efectos. Bloquear reintentos;
             // si la persistencia de UNKNOWN falla, quedará IN_PROGRESS.
             try {
                 attemptService.markUnknown(
-                        started.executionId(),
+                        started.ownership(),
                         "completion-uncertain:" + started.executionId()
                 );
             } catch (RuntimeException auditFailure) {
