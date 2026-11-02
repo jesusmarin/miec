@@ -15,6 +15,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -190,6 +192,145 @@ class ExecutionAttemptServiceTest {
         );
     }
 
+    /**
+     * Revalida la autorización al iniciar, aunque fuera válida al crear
+     * el intento. Comprueba que el rechazo conserva todas sus columnas.
+     *
+     * @param change revocación o vencimiento posterior a la creación
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"REVOKED", "EXPIRED"})
+    void shouldRejectAuthorizationChangedBeforeStart(String change) {
+        Fixture fixture = createFixture();
+        var pending = service.createAttempt(command(fixture));
+        String column = "REVOKED".equals(change) ? "revoked_at" : "expires_at";
+        jdbc.update("UPDATE authorizations SET " + column + " = ? WHERE authorization_id = ?",
+                Timestamp.from(Instant.now().minusSeconds(1)), fixture.authorizationId());
+        var before = jdbc.queryForMap(
+                "SELECT * FROM execution_attempt WHERE execution_id = ?", pending.executionId());
+
+        assertThrows(AttemptDeniedException.class, () -> service.startAuthorizedAttempt(
+                pending.executionId(), "PROCESS_EXECUTION"));
+
+        assertEquals(before, jdbc.queryForMap(
+                "SELECT * FROM execution_attempt WHERE execution_id = ?", pending.executionId()));
+    }
+
+    /**
+     * Verifica que un cambio en la planificación impida iniciar el intento
+     * y conserve su estado, fechas y versión originales.
+     *
+     * @param change eliminación de la acción o cambio de su tipo
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"REMOVED", "TYPE_CHANGED"})
+    void shouldRejectPlanningChangedBeforeStart(String change) {
+        Fixture fixture = createFixture();
+        var pending = service.createAttempt(command(fixture));
+        String actions = "REMOVED".equals(change) ? "[]" : """
+                [{"actionId":"%s","actionType":"MEASUREMENT"}]
+                """.formatted(fixture.actionId());
+        jdbc.update("UPDATE intervention_plan SET actions = ? FORMAT JSON WHERE plan_id = ?",
+                "{\"schemaVersion\":\"01\",\"actions\":" + actions + "}", fixture.planId());
+        var before = jdbc.queryForMap(
+                "SELECT * FROM execution_attempt WHERE execution_id = ?", pending.executionId());
+
+        assertThrows(AttemptDeniedException.class, () -> service.startAuthorizedAttempt(
+                pending.executionId(), "PROCESS_EXECUTION"));
+
+        assertEquals(before, jdbc.queryForMap(
+                "SELECT * FROM execution_attempt WHERE execution_id = ?", pending.executionId()));
+    }
+
+    /**
+     * Comprueba que un intento ya iniciado o finalizado no pueda iniciarse
+     * otra vez. El rechazo no debe modificar ninguna columna del intento.
+     *
+     * @param state estado distinto de PENDING que debe rechazarse
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"IN_PROGRESS", "COMPLETED", "FAILED", "UNKNOWN"})
+    void shouldRejectStartingNonPendingAttempt(String state) {
+        Fixture fixture = createFixture();
+        var pending = service.createAttempt(command(fixture));
+        service.startAuthorizedAttempt(pending.executionId(), "PROCESS_EXECUTION");
+        switch (state) {
+            case "COMPLETED" -> service.completeAttempt(pending.executionId(), "result:test");
+            case "FAILED" -> service.failAttempt(pending.executionId(),
+                    EffectOutcome.NO_EFFECT_CONFIRMED, "error:test");
+            case "UNKNOWN" -> service.markUnknown(pending.executionId(), "error:test");
+            default -> { }
+        }
+        var before = jdbc.queryForMap(
+                "SELECT * FROM execution_attempt WHERE execution_id = ?", pending.executionId());
+
+        assertThrows(AttemptDeniedException.class, () -> service.startAuthorizedAttempt(
+                pending.executionId(), "PROCESS_EXECUTION"));
+
+        assertEquals(before, jdbc.queryForMap(
+                "SELECT * FROM execution_attempt WHERE execution_id = ?", pending.executionId()));
+    }
+
+    /** Comprueba el rechazo de un identificador de intento inexistente. */
+    @Test
+    void shouldRejectStartingMissingAttempt() {
+        assertThrows(AttemptDeniedException.class, () -> service.startAuthorizedAttempt(
+                UUID.randomUUID(), "PROCESS_EXECUTION"));
+    }
+
+    /**
+     * Libera dos solicitudes de inicio para el mismo intento mediante una
+     * barrera. Solo una debe confirmar IN_PROGRESS y aumentar version una vez.
+     * Los tiempos límite y el bloque finally garantizan el cierre de los hilos.
+     *
+     * @throws Exception si falla la sincronización o una tarea inesperadamente
+     */
+    @Test
+    void shouldAllowOnlyOneConcurrentStartOfSameAttempt() throws Exception {
+        Fixture fixture = createFixture();
+        var pending = service.createAttempt(command(fixture));
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<AttemptSnapshot> task = () -> {
+                ready.countDown();
+                if (!start.await(15, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timeout esperando inicio");
+                }
+                return service.startAuthorizedAttempt(pending.executionId(), "PROCESS_EXECUTION");
+            };
+            var first = executor.submit(task);
+            var second = executor.submit(task);
+            assertTrue(ready.await(15, TimeUnit.SECONDS));
+            start.countDown();
+            int successful = 0;
+            int rejected = 0;
+            for (var future : List.of(first, second)) {
+                try {
+                    assertEquals(ExecutionStatus.IN_PROGRESS,
+                            future.get(15, TimeUnit.SECONDS).status());
+                    successful++;
+                } catch (ExecutionException exception) {
+                    assertInstanceOf(AttemptDeniedException.class, exception.getCause());
+                    rejected++;
+                }
+            }
+            assertEquals(1, successful);
+            assertEquals(1, rejected);
+            var recorded = history(fixture);
+            assertEquals(1, recorded.size());
+            assertEquals(ExecutionStatus.IN_PROGRESS, recorded.getFirst().status());
+            assertEquals(pending.version() + 1, recorded.getFirst().version());
+            assertNotNull(recorded.getFirst().startedAt());
+            assertNull(recorded.getFirst().completedAt());
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS));
+        }
+    }
+
     @Test
     @DisplayName(
             "Debe crear y persistir el primer intento como PENDING"
@@ -239,7 +380,7 @@ class ExecutionAttemptServiceTest {
                 service.createAttempt(command(fixture));
 
         AttemptSnapshot started =
-                service.startAttempt(attempt.executionId());
+                service.startAuthorizedAttempt(attempt.executionId(), "PROCESS_EXECUTION");
 
         AttemptSnapshot completed =
                 service.completeAttempt(
@@ -286,7 +427,7 @@ class ExecutionAttemptServiceTest {
         AttemptSnapshot first =
                 service.createAttempt(command(fixture));
 
-        service.startAttempt(first.executionId());
+        service.startAuthorizedAttempt(first.executionId(), "PROCESS_EXECUTION");
 
         service.failAttempt(
                 first.executionId(),
@@ -322,7 +463,7 @@ class ExecutionAttemptServiceTest {
         AttemptSnapshot first =
                 service.createAttempt(command(fixture));
 
-        service.startAttempt(first.executionId());
+        service.startAuthorizedAttempt(first.executionId(), "PROCESS_EXECUTION");
 
         service.markUnknown(
                 first.executionId(),
@@ -380,7 +521,7 @@ class ExecutionAttemptServiceTest {
                     attempt.attemptNumber()
             );
 
-            service.startAttempt(attempt.executionId());
+            service.startAuthorizedAttempt(attempt.executionId(), "PROCESS_EXECUTION");
 
             service.failAttempt(
                     attempt.executionId(),
@@ -690,7 +831,7 @@ class ExecutionAttemptServiceTest {
         AttemptSnapshot first =
                 service.createAttempt(command(fixture));
 
-        service.startAttempt(first.executionId());
+        service.startAuthorizedAttempt(first.executionId(), "PROCESS_EXECUTION");
 
         service.failAttempt(
                 first.executionId(),
