@@ -33,7 +33,7 @@ public class ExecutionEvidenceService {
             String reference, Instant occurredAt) {
         Objects.requireNonNull(owner);
         return append(id,owner.executionId(),Source.EXECUTOR_REPORT,owner.executorId(),owner,
-                outcome,reference,occurredAt,null);
+                outcome,reference,Objects.requireNonNull(occurredAt),null);
     }
 
     /**
@@ -44,15 +44,24 @@ public class ExecutionEvidenceService {
     public Evidence verified(UUID id,UUID executionId,UUID authorizationId,String reviewer,
             Outcome outcome,String reference,Instant occurredAt) {
         return append(id,executionId,Source.DESTINATION_VERIFIED,reviewer,null,
-                outcome,reference,occurredAt,authorizationId);
+                outcome,reference,Objects.requireNonNull(occurredAt),authorizationId);
+    }
+
+    /**
+     * Fecha una observación local dentro de su escritura. Reenvíos concurrentes
+     * del mismo ID conservan el instante original bajo el bloqueo del intento.
+     * Solo la ruta interna de verificación configurada utiliza esta variante.
+     */
+    Evidence verifiedObservation(UUID id, UUID executionId, UUID authorizationId, String reviewer, String reference) {
+        return append(id,executionId,Source.DESTINATION_VERIFIED,reviewer,null,
+                Outcome.EFFECT_APPLIED,reference,null,authorizationId);
     }
 
     /** Valida, deduplica por identidad/contenido e inserta bajo bloqueo del plan. */
     private Evidence append(UUID id,UUID executionId,Source source,String actor,ExecutionActivityService.Ownership owner,
             Outcome outcome,String reference,Instant occurredAt,UUID authorizationId) {
-        Objects.requireNonNull(id); Objects.requireNonNull(outcome); Objects.requireNonNull(occurredAt);
+        Objects.requireNonNull(id); Objects.requireNonNull(outcome);
         String who=ExecutionRecoveryAccess.text(actor,255), ref=ExecutionRecoveryAccess.text(reference,500);
-        Instant occurred=occurredAt.truncatedTo(ChronoUnit.MICROS);
         return Objects.requireNonNull(access.transaction.execute(tx->{
             var attempt=access.lock(executionId);
             if(attempt.startedAt()==null) throw ExecutionRecoveryAccess.denied("El intento no comenzó");
@@ -61,10 +70,12 @@ public class ExecutionEvidenceService {
             }
             if(source==Source.DESTINATION_VERIFIED) access.authorize(attempt,authorizationId,who);
             Instant now=access.activity.databaseNow().truncatedTo(ChronoUnit.MICROS);
+            var existing=access.jdbc.query("SELECT * FROM execution_evidence WHERE evidence_id=?",this::map,id);
+            Instant occurred=(occurredAt!=null?occurredAt:
+                    existing.isEmpty()?now:existing.getFirst().occurredAt()).truncatedTo(ChronoUnit.MICROS);
             if(occurred.isAfter(now)) throw new IllegalArgumentException("La evidencia no puede ocurrir en el futuro");
             var requested=new Evidence(id,executionId,source,who,owner==null?null:owner.executorId(),
                     owner==null?null:owner.fencingToken(),outcome,ref,occurred,now,authorizationId);
-            var existing=access.jdbc.query("SELECT * FROM execution_evidence WHERE evidence_id=?",this::map,id);
             if(!existing.isEmpty()) {
                 var old=existing.getFirst();
                 var comparable=new Evidence(id,executionId,source,who,requested.executorId(),requested.fencingToken(),
