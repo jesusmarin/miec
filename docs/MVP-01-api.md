@@ -45,7 +45,7 @@ MIEC_APPROVER_PASSWORD con claves distintas de al menos doce caracteres. Ver
 .\mvnw.cmd spring-boot:run
 ```
 
-La instancia debe cargar el código nuevo y aplicar las migraciones hasta V013. Si había una instancia
+La instancia debe cargar el código nuevo y aplicar las migraciones hasta V014. Si había una instancia
 anterior, reiniciarla desde el IDE. El puerto predeterminado es 8081 y la dirección
 local 127.0.0.1; MIEC_SERVER_ADDRESS permite cambiarla explícitamente. Todas las
 rutas requieren autenticación. Planes y permisos existen mediante MVP-02; la API

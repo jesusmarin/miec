@@ -24,6 +24,13 @@ public class LifecycleApiErrors {
         public ApiError { fields = Map.copyOf(fields); }
     }
 
+    /** No declara auditoría confirmada si falló persistirla; solo devuelve una correlación sin causas internas. */
+    @ExceptionHandler(com.miec.action.ExecutionIncidentAuditException.class)
+    public ResponseEntity<ApiError> executionAudit(com.miec.action.ExecutionIncidentAuditException failure) {
+        return ResponseEntity.internalServerError().body(new ApiError("EXECUTION_AUDIT_UNAVAILABLE","No se pudo confirmar la auditoría de ejecución",
+                Map.of("incidentId",failure.incidentId().toString())));
+    }
+
     /** Conserva la diferencia entre solicitud inválida, inexistencia y conflicto. */
     @ExceptionHandler(LifecycleException.class)
     public ResponseEntity<ApiError> application(LifecycleException failure) {

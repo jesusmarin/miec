@@ -2,6 +2,11 @@
 
 ## Alcance
 
+Actualización de guardas: [admisión previa al envío e incidentes](MVP-03-send-admission.md)
+implementa los pasos 1–4 posteriores. Revalida permiso y propiedad después de lookup,
+añade V014 y amplía el recurso con incidents. Los conteos de esta guía corresponden
+al incremento original; los resultados actualizados se registran en esa ampliación.
+
 Se conecta un plan aprobado en E06 con `IdempotentActionExecutionService` e IR-009.
 Las acciones se ejecutan secuencialmente en el orden persistido, fuera de las
 transacciones del ciclo. La coordinación y los intentos tienen propietarios y

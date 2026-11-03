@@ -14,6 +14,7 @@ El MVP v01 completo no se declara cerrado.
 - [Planes y permisos](docs/MVP-02-intervention.md).
 - [Integración IR-009](docs/IR-009-integration-contract.md).
 - [Ejecución del plan: 3.1, 3.2 y 3.3](docs/MVP-03-plan-execution.md).
+- [Admisión final del envío e incidentes](docs/MVP-03-send-admission.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto
 la aplicación escucha en 127.0.0.1:8081 y mantiene apagada la consola H2. Swagger,

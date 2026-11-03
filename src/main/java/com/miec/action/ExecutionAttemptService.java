@@ -852,6 +852,60 @@ public class ExecutionAttemptService {
         }));
     }
     /**
+     * Revalida plan, identidad, alcance, vigencia, huella, solicitud y propiedad del intento después del
+     * lookup. Cierra plan → intento → autorización antes de volver al callback de envío.
+     * Solo el coordinador confiable utiliza esta guarda; no renueva permisos ni actividad.
+     */
+    void validateBeforeSend(AuthorizedActionExecutionService.ExecutionCommand command,
+            ExecutionActivityService.Ownership owner,UUID operationKey,ExecutionRequest request) {
+        transaction.executeWithoutResult(status->{
+            var plan=lockAndReadPlan(command.planId()); var current=lockAttempt(owner.executionId());
+            if(!current.planId().equals(command.planId())||!current.cycleId().equals(command.cycleId())
+                    ||!current.plannedActionId().equals(command.actionId())||!current.authorizationId().equals(command.authorizationId())
+                    ||!plannedPolicy.evaluate(plan,new ActionRequest(command.planId(),command.cycleId(),command.actionId(),command.actionType())).allowed())
+                throw dispatchDenied(ExecutionDispatchRejectedException.Code.ATTEMPT_CONTEXT_CHANGED,owner);
+            lockAuthorization(command.authorizationId());
+            var metadata=jdbc.queryForMap("SELECT created_by,status FROM intervention_plan WHERE plan_id=?",command.planId());
+            String approval=jdbc.queryForObject("SELECT request_fingerprint FROM authorizations WHERE authorization_id=?",String.class,command.authorizationId());
+            if(metadata.get("CREATED_BY")!=null&&(approval==null||!"APPROVED".equals(metadata.get("STATUS"))))
+                throw dispatchDenied(ExecutionDispatchRejectedException.Code.APPROVED_CONTENT_CHANGED,owner);
+            if(approval!=null) {
+                String fingerprint=jdbc.queryForObject("SELECT * FROM intervention_plan WHERE plan_id=?",(rs,row)->PlannedContentFingerprint.of(rs),command.planId());
+                if(!approval.equals(fingerprint)) throw dispatchDenied(ExecutionDispatchRejectedException.Code.APPROVED_CONTENT_CHANGED,owner);
+            }
+            if(operationKey!=null) {
+                UUID persisted=jdbc.queryForObject("SELECT operation_key FROM execution_attempt WHERE execution_id=?",UUID.class,owner.executionId());
+                var requests=jdbc.query("SELECT destination_id,request_media_type,request_body,request_fingerprint FROM execution_operation WHERE operation_key=? AND plan_id=? AND planned_action_id=?",
+                        (rs,row)-> {
+                            if(rs.getString(2)==null||rs.getString(3)==null) return null;
+                            var captured=new ExecutionRequest(rs.getString(1),rs.getString(2),rs.getString(3));
+                            return captured.fingerprint().equals(rs.getString(4))?captured:null;
+                        },operationKey,command.planId(),command.actionId());
+                if(!operationKey.equals(persisted)||request==null||requests.size()!=1||!request.equals(requests.getFirst()))
+                    throw dispatchDenied(ExecutionDispatchRejectedException.Code.REQUEST_CHANGED,owner);
+                String document=jdbc.queryForObject("SELECT actions FROM intervention_plan WHERE plan_id=?",String.class,command.planId());
+                var approvedRequest=plannedJson.executionRequest(command.actionId(),document);
+                if(approvedRequest.isPresent()&&!approvedRequest.get().equals(request))
+                    throw dispatchDenied(ExecutionDispatchRejectedException.Code.REQUEST_CHANGED,owner);
+            }
+            Instant now=activity.databaseNow().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+            if(current.status()!=ExecutionStatus.IN_PROGRESS)
+                throw dispatchDenied(ExecutionDispatchRejectedException.Code.ATTEMPT_NOT_RUNNING,owner);
+            if(!owner.executorId().equals(current.executorId())||!Objects.equals(owner.fencingToken(),current.fencingToken()))
+                throw dispatchDenied(ExecutionDispatchRejectedException.Code.ATTEMPT_OWNER_CHANGED,owner);
+            if(current.leaseExpiresAt()==null||!current.leaseExpiresAt().isAfter(now))
+                throw dispatchDenied(ExecutionDispatchRejectedException.Code.ATTEMPT_LEASE_EXPIRED,owner);
+            if(!authorizations.evaluate(command.authorizationId(),new AuthorizationUseRequest(command.planId(),command.actionId(),EXECUTE_SCOPE,now)).allowed())
+                throw dispatchDenied(ExecutionDispatchRejectedException.Code.AUTHORIZATION_INVALID,owner);
+        });
+    }
+
+    /** Construye un rechazo estable sin exponer contenido o mensajes de base de datos. */
+    private static ExecutionDispatchRejectedException dispatchDenied(ExecutionDispatchRejectedException.Code code,ExecutionActivityService.Ownership owner) {
+        return new ExecutionDispatchRejectedException(code,owner.executionId(),null);
+    }
+
+    /**
      * Registra rechazo anterior al efecto externo. Nunca se invoca
      * después de que el ejecutor haya comenzado.
      * Una cancelación auditada ya existente se conserva sin reescribir sus fechas.

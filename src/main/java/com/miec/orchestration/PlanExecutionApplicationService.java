@@ -25,14 +25,15 @@ public class PlanExecutionApplicationService {
     private final ExecutableActionCatalog catalog;
     private final IdempotentActionExecutionService execution;
     private final ExecutionActivityService activity;
+    private final ExecutionIncidentService incidents;
     private final ScheduledExecutorService heartbeats=Executors.newSingleThreadScheduledExecutor(task->{
         var thread=new Thread(task,"miec-plan-coordination-heartbeat"); thread.setDaemon(true); return thread;
     });
 
     /** Reutiliza identidad, coordinación y el punto único de ejecución protegido de IR-009. */
     PlanExecutionApplicationService(InterventionIdentity identity,PlanExecutionStore store,ExecutableActionCatalog catalog,
-            IdempotentActionExecutionService execution,ExecutionActivityService activity) {
-        this.identity=identity; this.store=store; this.catalog=catalog; this.execution=execution; this.activity=activity;
+            IdempotentActionExecutionService execution,ExecutionActivityService activity,ExecutionIncidentService incidents) {
+        this.identity=identity; this.store=store; this.catalog=catalog; this.execution=execution; this.activity=activity;this.incidents=incidents;
     }
 
     /** Inicia una única coordinación por plan; rechaza una transacción exterior antes de reservar. */
@@ -78,10 +79,29 @@ public class PlanExecutionApplicationService {
         } catch(RuntimeException failure) {
             // Si se perdió propiedad, pause no puede mutar el run. La marca durable
             // y la proyección requieren revisión; nunca se roba o reenvía el despacho.
+            RuntimeException pauseFailure=null;
             try { store.pause(claim); }
-            catch(RuntimeException auditFailure) { failure.addSuppressed(auditFailure); }
+            catch(RuntimeException auditFailure) { failure.addSuppressed(auditFailure);pauseFailure=auditFailure; }
+            var incident=incidents.captureCoordination(claim.runId(),claim.actor(),failure);
+            var unavailable=findAuditFailure(failure);
+            if(unavailable!=null) throw new ExecutionIncidentAuditException(unavailable.incidentId(),failure);
+            if(pauseFailure!=null&&!(pauseFailure instanceof LifecycleException rejected&&"COORDINATOR_LOST".equals(rejected.code())))
+                throw new ExecutionIncidentAuditException(incident,failure);
             return store.view(claim.planId());
         }
+    }
+
+    /** Encuentra auditoría fallida conservada en causas/suprimidas, sin confiar en mensajes ni perder correlación. */
+    private static ExecutionIncidentAuditException findAuditFailure(Throwable failure) {
+        var pending=new java.util.ArrayDeque<Throwable>();pending.add(failure);
+        var visited=java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable,Boolean>());
+        while(!pending.isEmpty()) {
+            var current=pending.removeFirst();if(!visited.add(current)) continue;
+            if(current instanceof ExecutionIncidentAuditException audit) return audit;
+            if(current.getCause()!=null) pending.add(current.getCause());
+            java.util.Collections.addAll(pending,current.getSuppressed());
+        }
+        return null;
     }
 
     /** Añade una comprobación de coordinación antes de cada IO del ejecutor sin sustituir la autorización de IR-009. */
@@ -91,8 +111,10 @@ public class PlanExecutionApplicationService {
             @Override public ExecutionRequest request() { return bound.request(); }
             /** Consulta únicamente mientras esta adquisición conserva propiedad y contexto. */
             @Override public Lookup lookup(Context context) { supervision.check(); store.assertOwner(claim); return bound.lookup(context); }
-            /** Envía solo después de revalidar la adquisición y el snapshot aprobado. */
-            @Override public String execute(Context context) { supervision.check(); store.assertOwner(claim); return bound.execute(context); }
+            /** Comprueba contexto local antes de la admisión final IR-009; no deja IO ni locks abiertos. */
+            @Override public void beforeSend(Context context) { supervision.check(); store.assertOwner(claim); bound.beforeSend(context); }
+            /** La frontera IR-009 ya revalidó permiso/propiedad después del hook y antes de entrar aquí. */
+            @Override public String execute(Context context) { return bound.execute(context); }
         };
     }
 

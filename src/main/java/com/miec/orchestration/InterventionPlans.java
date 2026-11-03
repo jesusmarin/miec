@@ -3,14 +3,9 @@ package com.miec.orchestration;
 import com.miec.action.PlannedActionJsonV01;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.UUID;
 import static com.miec.orchestration.InterventionViews.*;
 import static com.miec.orchestration.InterventionSupport.fail;
@@ -72,20 +67,8 @@ class InterventionPlans {
                 rs.getString("rollback_strategy"),hash,rs.getTimestamp("created_at").toInstant());
     }
 
-    /** Huella versionada de todo contenido relevante, con distinción explícita entre null y texto vacío. */
+    /** Delega el algoritmo compartido sin cambiar el contenido ni la versión de las huellas históricas. */
     private String fingerprint(ResultSet rs) throws SQLException {
-        try {
-            var digest=MessageDigest.getInstance("SHA-256");
-            var fields=new ArrayList<String>(); fields.add("MVP-PLAN-01");
-            for(String column:new String[]{"plan_id","cycle_id","objective_ids","hypothesis_ids","actions",
-                    "expected_outcomes","risk_assessment_id","rollback_strategy","authorization_requirements",
-                    "version_id","created_by","diagnosis_id"}) fields.add(rs.getString(column));
-            for(String field:fields) {
-                byte[] bytes=field==null?new byte[0]:field.getBytes(StandardCharsets.UTF_8);
-                digest.update(ByteBuffer.allocate(4).putInt(field==null?-1:bytes.length).array());
-                digest.update(bytes);
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch(NoSuchAlgorithmException impossible) { throw new IllegalStateException("SHA-256 no disponible",impossible); }
+        return com.miec.action.PlannedContentFingerprint.of(rs);
     }
 }

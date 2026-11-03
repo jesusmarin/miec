@@ -29,11 +29,12 @@ class PlanExecutionStore {
     private final ExecutionOutcomeQueryService outcomes;
     private final ExecutionActivityService activity;
     private final ExecutableActionCatalog catalog;
+    private final ExecutionIncidentService incidents;
 
     /** Recibe servicios reales de autorización, reloj y proyección de IR-009; no duplica sus intentos. */
     PlanExecutionStore(InterventionSupport store,InterventionPlans plans,AuthorizationPersistenceService permissions,
-            ExecutionOutcomeQueryService outcomes,ExecutionActivityService activity,ExecutableActionCatalog catalog) {
-        this.store=store; this.plans=plans; this.permissions=permissions; this.outcomes=outcomes; this.activity=activity; this.catalog=catalog;
+            ExecutionOutcomeQueryService outcomes,ExecutionActivityService activity,ExecutableActionCatalog catalog,ExecutionIncidentService incidents) {
+        this.store=store; this.plans=plans; this.permissions=permissions; this.outcomes=outcomes; this.activity=activity; this.catalog=catalog;this.incidents=incidents;
     }
 
     /** Credencial interna de una adquisición; nunca se acepta ni se devuelve como comando HTTP. */
@@ -212,7 +213,7 @@ class PlanExecutionStore {
                     fact.executionId()==null?step.executionId():fact.executionId(),step.resultReference(),fact.outcome()));
         }
         return new Run(row.id(),row.plan(),row.cycle(),row.state(),cycle.state(),row.version(),row.generation(),row.lease(),
-                row.createdBy(),row.updatedBy(),row.createdAt(),row.updatedAt(),review,projected);
+                row.createdBy(),row.updatedBy(),row.createdAt(),row.updatedAt(),review,projected,incidents.findForRun(row.id()));
     }
 
     /** Valida estado aprobado y todos los enlaces sin producir efectos ni reservar claves IR-009. */

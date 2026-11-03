@@ -27,6 +27,7 @@ public class AuthorizedActionExecutionService {
     private final ExecutionAttemptService attemptService;
     private final ExecutionHeartbeatSupervisor heartbeatSupervisor;
     private final ExecutionEvidenceService evidenceService;
+    private final ExecutionIncidentService incidents;
 
     /** Contrato de operación síncrona administrada por el coordinador. */
     @FunctionalInterface
@@ -80,10 +81,12 @@ public class AuthorizedActionExecutionService {
     public AuthorizedActionExecutionService(
             ExecutionAttemptService attemptService,
             ExecutionHeartbeatSupervisor heartbeatSupervisor,
-            ExecutionEvidenceService evidenceService
+            ExecutionEvidenceService evidenceService,
+            ExecutionIncidentService incidents
     ) {
         this.heartbeatSupervisor = Objects.requireNonNull(heartbeatSupervisor);
         this.evidenceService = Objects.requireNonNull(evidenceService);
+        this.incidents=Objects.requireNonNull(incidents);
         this.attemptService = Objects.requireNonNull(
                 attemptService, "ExecutionAttemptService es obligatorio"
         );
@@ -119,8 +122,8 @@ public class AuthorizedActionExecutionService {
      * transacciones independientes REQUIRES_NEW y una transacción de
      * negocio exterior podría revertirse después de registrar COMPLETED.
      *
-     * <p>La autorización se revalida en startAuthorizedAttempt(),
-     * inmediatamente antes de invocar el ejecutor. Una revocación
+     * <p>La autorización se revalida en startAuthorizedAttempt() y en la
+     * admisión final anterior al envío, después de cualquier lookup. Una revocación
      * posterior al inicio no puede impedir por sí sola efectos externos:
      * ese caso requiere coordinación con el destinatario.
      *
@@ -132,14 +135,14 @@ public class AuthorizedActionExecutionService {
             ActionExecutor executor
     ) {
         Objects.requireNonNull(executor, "executor es obligatorio");
-        return executeTracked(command, null, owner -> { executor.execute(); return null; });
+        return executeTracked(command, null, (owner,admission) -> admission.send(null,()->{},()->{ executor.execute(); return null; }));
     }
 
-    /** Callback interno con credenciales y referencia al resultado del destinatario. */
+    /** Callback interno con credenciales, frontera de admisión y referencia al resultado del destinatario. */
     @FunctionalInterface
     interface OwnedExecutor {
         /** Ejecuta una operación bajo la adquisición actual. */
-        String execute(ExecutionActivityService.Ownership owner);
+        String execute(ExecutionActivityService.Ownership owner,DispatchAdmission admission);
     }
 
     /** Ruta interna que exige la clave idempotente registrada desde el primer intento. */
@@ -197,6 +200,7 @@ public class AuthorizedActionExecutionService {
             } catch (RuntimeException auditFailure) {
                 startFailure.addSuppressed(auditFailure);
             }
+            incidents.captureCore(pending.executionId(),ExecutionIncidentService.Phase.REJECTED_BEFORE_SEND,null,startFailure);
             if (startFailure instanceof AttemptDeniedException) {
                 throw new ExecutionDeniedException(
                         "IR-009: " + startFailure.getMessage(), startFailure
@@ -206,9 +210,13 @@ public class AuthorizedActionExecutionService {
         }
 
         String resultReference;
+        boolean appliedObserved=false;
+        var admission=new DispatchAdmission(attemptService,command,started.ownership(),operationKey);
         try (var supervision = heartbeatSupervisor.supervise(started.ownership())) {
+            admission.supervise(supervision::checkHealthy);
             try {
-                resultReference = executor.execute(started.ownership());
+                resultReference = executor.execute(started.ownership(),admission);
+                appliedObserved=true;
                 recordReport(started.ownership(), ExecutionEvidenceService.Outcome.EFFECT_APPLIED,
                         resultReference == null ? "execution-result:" + started.executionId() : resultReference);
             } catch (RuntimeException | Error executionFailure) {
@@ -232,6 +240,9 @@ public class AuthorizedActionExecutionService {
             } catch (RuntimeException auditFailure) {
                 failure.addSuppressed(auditFailure);
             }
+            var phase=admission.rejectedBeforeSend()?ExecutionIncidentService.Phase.REJECTED_BEFORE_SEND:
+                    appliedObserved?ExecutionIncidentService.Phase.APPLIED_CONFIRMATION_FAILED:ExecutionIncidentService.Phase.OUTCOME_UNCERTAIN;
+            incidents.captureCore(started.executionId(),phase,admission.rejectedBeforeSend()?admission.rejection().code():null,failure);
             throw failure;
         }
 
@@ -249,6 +260,7 @@ public class AuthorizedActionExecutionService {
             } catch (RuntimeException auditFailure) {
                 persistenceFailure.addSuppressed(auditFailure);
             }
+            incidents.captureCore(started.executionId(),ExecutionIncidentService.Phase.APPLIED_CONFIRMATION_FAILED,null,persistenceFailure);
             throw persistenceFailure;
         }
 

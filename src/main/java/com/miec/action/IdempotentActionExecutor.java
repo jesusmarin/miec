@@ -33,6 +33,8 @@ public interface IdempotentActionExecutor {
     ExecutionRequest request();
     /** Consulta durablemente si la operación ya ocurrió, sin ejecutar el efecto. */
     Lookup lookup(Context context);
+    /** Guarda local sin IO ni efectos; el núcleo revalida permiso y propiedad después de este hook. */
+    default void beforeSend(Context context) { }
     /** Envía usando la clave; repetirla debe devolver el mismo resultado sin duplicar el efecto. */
     String execute(Context context);
 }

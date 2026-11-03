@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class PlanExecutionApiTest {
     @LocalServerPort int port;
     @Autowired JdbcTemplate jdbc;
+    @Autowired ExecutionTestConfiguration.TestAdapter adapter;
     private final HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private final JsonMapper json=JsonMapper.builder().build();
 
@@ -111,5 +112,32 @@ class PlanExecutionApiTest {
         var operation=paths.path("/api/cycles/{cycleId}/plans/{planId}/execution").path("post");
         assertFalse(operation.path("security").isEmpty());assertTrue(operation.path("responses").has("409"));
         assertTrue(paths.has("/api/plans/{planId}/execution/recover"));
+    }
+
+    /** Los incidentes públicos conservan códigos e IDs sin mensajes internos ni cuerpos del destinatario. */
+    @Test void shouldExposeSanitizedAdmissionIncidentOverHttp() throws Exception {
+        var plan=approved(1,true);var command=startBody(plan);UUID id=UUID.fromString(plan.path("planId").asString());
+        adapter.onLookup(()->jdbc.update("UPDATE authorizations SET expires_at=? WHERE plan_id=?",java.sql.Timestamp.from(java.time.Instant.now().minusSeconds(1)),id));
+        try {
+            var run=post(startPath(plan),command,"author",201);
+            assertEquals("RECOVERY_REQUIRED",run.path("state").asString());
+            assertEquals("AUTHORIZATION_INVALID",run.path("incidents").get(0).path("code").asString());
+            assertEquals("REJECTED_BEFORE_SEND",run.path("incidents").get(0).path("phase").asString());
+            assertFalse(run.path("incidents").get(0).has("message"));assertFalse(run.path("incidents").get(0).has("stackTrace"));
+        } finally { adapter.onLookup(()->{}); }
+    }
+
+    /** Un fallo real de INSERT de auditoría responde 500 con correlación, sin SQL ni una falsa confirmación. */
+    @Test void shouldReturnOnlyCorrelationWhenIncidentAuditCannotBeStored() throws Exception {
+        var plan=approved(1,true);var command=startBody(plan);UUID id=UUID.fromString(plan.path("planId").asString());
+        jdbc.execute("ALTER TABLE execution_incident ADD CONSTRAINT test_http_incident_failure CHECK(plan_id<>CAST('"+id+"' AS UUID))");
+        adapter.onLookup(()->jdbc.update("UPDATE authorizations SET expires_at=? WHERE plan_id=?",java.sql.Timestamp.from(java.time.Instant.now().minusSeconds(1)),id));
+        try {
+            var failure=post(startPath(plan),command,"author",500);
+            assertEquals("EXECUTION_AUDIT_UNAVAILABLE",failure.path("code").asString());
+            assertDoesNotThrow(()->UUID.fromString(failure.path("fields").path("incidentId").asString()));
+            String body=json.writeValueAsString(failure);
+            assertFalse(body.contains("execution_incident"));assertFalse(body.contains("test_http_incident_failure"));assertFalse(body.contains("SQL"));
+        } finally { adapter.onLookup(()->{});jdbc.execute("ALTER TABLE execution_incident DROP CONSTRAINT test_http_incident_failure"); }
     }
 }
