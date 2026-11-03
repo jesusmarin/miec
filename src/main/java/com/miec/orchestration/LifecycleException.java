@@ -3,7 +3,7 @@ package com.miec.orchestration;
 /** Rechazo de aplicación independiente de HTTP y sin datos de infraestructura. */
 public final class LifecycleException extends RuntimeException {
     /** Clasificación que el adaptador REST transforma en un estado HTTP. */
-    public enum Kind { BAD_REQUEST, NOT_FOUND, CONFLICT }
+    public enum Kind { BAD_REQUEST, NOT_FOUND, CONFLICT, UNAUTHORIZED, FORBIDDEN }
 
     private final Kind kind;
     private final String code;
