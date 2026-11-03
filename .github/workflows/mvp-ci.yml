@@ -70,7 +70,7 @@ jobs:
       - name: Verify packaged application across JVM restarts
         run: >-
           bash ./mvnw --batch-mode --no-transfer-progress
-          -Dtest=MvpLifecycleRestartIT
+          -Dtest=MvpLifecycleRestartIT,ClosedSetEvaluationRestartIT
           -Dmiec.mvp.jar=target/miec-prototype-0.0.1-SNAPSHOT.jar test
       - name: Upload test reports
         if: always()
