@@ -15,6 +15,19 @@ public class ExecutionTestConfiguration {
     /** Instala un adaptador controlable sin credenciales ni procesos externos. */
     @Bean TestAdapter testExecutionAdapter() { return new TestAdapter(); }
 
+    /** Fuente de solo consulta del mismo ledger; no añade efectos ni interpreta NOT_FOUND como NO_EFFECT. */
+    @Bean com.miec.action.integration.DestinationEvidenceSource testEvidenceSource(TestAdapter adapter) {
+        return new com.miec.action.integration.DestinationEvidenceSource() {
+            /** Usa la identidad del adaptador de pruebas instalado. */
+            @Override public String destinationId() { return adapter.descriptor().destinationId(); }
+            /** Consulta el ledger existente con el snapshot original. */
+            @Override public Observation lookup(IdempotentActionExecutor.Context context) {
+                var result=adapter.bind(context.request()).lookup(context);
+                return new Observation(context.operation().key(),context.request().destinationId(),context.request().fingerprint(),result.status(),result.resultReference());
+            }
+        };
+    }
+
     /** Ledger concurrente en memoria para verificar orden, incertidumbre y ausencia de reenvíos ciegos. */
     public static final class TestAdapter implements ExecutableActionAdapter {
         final ConcurrentHashMap<UUID,String> ledger=new ConcurrentHashMap<>();
@@ -25,6 +38,8 @@ public class ExecutionTestConfiguration {
         volatile String binding="a".repeat(64);
         /** Hook del servidor simulado para pruebas HTTP en otro paquete; nunca pertenece al catálogo productivo. */
         public void onLookup(Runnable hook) { duringLookup=hook; }
+        /** Permite simular respuesta perdida desde las pruebas HTTP sin publicar hooks en producción. */
+        public void onAfterEffect(Runnable hook) { afterEffect=hook; }
         /** Mantiene una identidad distinta de los adaptadores productivos. */
         @Override public ExecutableActions.Descriptor descriptor() { return new ExecutableActions.Descriptor("test-recipient","1","test-destination",binding); }
         /** Captura sin producir efectos; las pruebas controlan lo que ocurre durante execute. */

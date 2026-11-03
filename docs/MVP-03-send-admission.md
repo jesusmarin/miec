@@ -1,5 +1,8 @@
 # MVP-03 — admisión previa al envío, pasos 1–4
 
+Continuación implementada: [finalización y recuperación, pasos 5–8](MVP-03-finalization-recovery.md).
+El resto de esta guía conserva el alcance y resultados históricos de los pasos 1–4.
+
 ## Paso 1: contrato y frontera temporal
 
 El punto de admisión está después del lookup sin efectos y antes de entrar en

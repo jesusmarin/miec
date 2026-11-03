@@ -198,6 +198,45 @@ class PlanExecutionStore {
         return view(planId);
     }
 
+    /**
+     * Finaliza bajo el bloqueo del plan que comparten evidencia e intentos IR-009.
+     * Importa hechos confirmados, invalida propiedad anterior y cambia a E08 junto
+     * con versión, evento y transición. No exige EXECUTE_ACTION ni realiza IO.
+     * Una contradicción posterior sigue visible mediante requiresReview.
+     */
+    @Transactional(timeout=10)
+    public Run finish(UUID planId,Finish command,String actor) {
+        store.lifecycle.validate(command);
+        var locked=plans.lock(planId); var row=required(planId,true);
+        expectVersion(row,command.expectedVersion()); unchanged(row,locked.plan());
+        var cycle=locked.cycle();
+        if(cycle.version()!=command.expectedCycleVersion())
+            throw fail(CONFLICT,"VERSION_CONFLICT","La versión del ciclo cambió");
+        if(!List.of("E07_EJECUTANDO","E13_RECUPERANDO").contains(cycle.state()))
+            throw fail(CONFLICT,"EXECUTION_NOT_FINALIZABLE","La etapa no admite finalizar la ejecución");
+        if("RUNNING".equals(row.state())&&row.lease().isAfter(store.lifecycle.now()))
+            throw fail(CONFLICT,"COORDINATOR_BUSY","El coordinador sigue vigente");
+        if(!"APPROVED".equals(locked.plan().status()))
+            throw fail(CONFLICT,"PLAN_NOT_APPROVED","El plan dejó de estar aprobado");
+        var steps=steps(row.id());
+        if(steps.isEmpty()||steps.size()!=locked.plan().actions().size())
+            throw fail(CONFLICT,"RESULT_UNCONFIRMED","La secuencia del plan está incompleta");
+        var facts=new ArrayList<Fact>();
+        for(var step:steps) {
+            if(!locked.plan().actions().get(step.ordinal()).actionId().equals(step.actionId()))
+                throw fail(CONFLICT,"PLAN_CHANGED","El orden del plan cambió");
+            var fact=observed(row,step);
+            if(!"APPLIED".equals(fact.outcome()))
+                throw fail(CONFLICT,"RESULT_UNCONFIRMED","Todas las acciones requieren resultado aplicado sin contradicciones");
+            facts.add(fact);
+        }
+        for(int index=0;index<steps.size();index++) recordApplied(row,steps.get(index),facts.get(index));
+        store.jdbc.update("UPDATE plan_execution SET run_state='APPLIED',owner_id=NULL,lease_expires_at=NULL,generation=generation+1 WHERE run_id=?",row.id());
+        touch(row,actor);
+        store.change(cycle,"E08_VERIFICANDO",EventType.PLAN_EXECUTION_FINALIZED,actor,command.reason().trim(),"plan-execution:"+row.id());
+        return view(planId);
+    }
+
     /** Lectura sin permiso de ejecución vigente ni cambios de estado, con proyección conservadora de IR-009. */
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Run view(UUID planId) {

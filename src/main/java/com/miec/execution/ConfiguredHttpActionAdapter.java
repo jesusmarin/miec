@@ -25,7 +25,7 @@ import java.util.concurrent.*;
  */
 @Component
 @ConditionalOnProperty(name="miec.recipient.enabled",havingValue="true")
-public class ConfiguredHttpActionAdapter implements ExecutableActionAdapter {
+public class ConfiguredHttpActionAdapter implements ExecutableActionAdapter, com.miec.action.integration.DestinationEvidenceSource {
     private final JsonMapper json;
     private final URI base;
     private final String key;
@@ -67,6 +67,16 @@ public class ConfiguredHttpActionAdapter implements ExecutableActionAdapter {
 
     /** Expone identidad y huella no secreta de las rutas instaladas. */
     @Override public ExecutableActions.Descriptor descriptor() { return descriptor; }
+
+    /** Usa la misma identidad, autenticación y límites de transporte para verificar resultados. */
+    @Override public String destinationId() { return descriptor.destinationId(); }
+
+    /** Consulta exclusivamente el GET del protocolo; NOT_FOUND nunca acredita NO_EFFECT. */
+    @Override public Observation lookup(IdempotentActionExecutor.Context context) {
+        var result=bind(context.request()).lookup(context);
+        return new Observation(context.operation().key(),context.request().destinationId(),context.request().fingerprint(),
+                result.status(),result.resultReference());
+    }
 
     /** Valida JSON y conserva cuerpo exacto; construir el ejecutor no hace solicitudes HTTP. */
     @Override public IdempotentActionExecutor bind(ExecutionRequest request) {

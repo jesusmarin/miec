@@ -1,5 +1,9 @@
 # MVP v01 — incrementos 3.1, 3.2 y 3.3
 
+Actualización posterior: [pasos 5–8 de finalización y recuperación](MVP-03-finalization-recovery.md)
+incorporan finish hacia E08 y reconciliación APPLIED por consulta autorizada.
+Los límites y conteos siguientes corresponden al incremento original.
+
 ## Alcance
 
 Actualización de guardas: [admisión previa al envío e incidentes](MVP-03-send-admission.md)
