@@ -124,8 +124,18 @@ ejecución manual. No despliega, publica artefactos Maven ni envía mensajes.
 
 Las acciones oficiales checkout/setup-java/upload-artifact están fijadas por SHA;
 el token del workflow solo dispone de contents:read y no queda persistido en Git.
-Si el SDK es privado, configurar RECIPIENT_SDK_READ_TOKEN con lectura exclusivamente
-de ese repositorio. En forks los secretos no se suministran: el SDK debe ser público
+El SDK privado requiere RECIPIENT_SDK_READ_TOKEN con lectura exclusivamente
+de ese repositorio. El workflow no sustituye un secreto ausente por github.token.
+La etapa `Validate SDK credential and pinned source` comprueba el secreto recibido,
+el acceso al repositorio, el commit fijado y el transporte Git, sin registrar el token.
+`SDK_SECRET_MISSING` indica que el runner no recibió el secreto; `SDK_TOKEN_REJECTED`
+indica HTTP 401; `SDK_ACCESS_FORBIDDEN` identifica HTTP 403 y la etapa afectada.
+Un 403 no demuestra que se necesite permiso de escritura. Si las tres comprobaciones
+pasan y checkout falla, investigar cómo checkout aplica la autenticación.
+Estos cambios requieren un nuevo commit y push: repetir una ejecución antigua
+no incorpora el diagnóstico nuevo. El funcionamiento del token en el PC no acredita
+qué credencial recibió el runner. Nunca copiar tokens en logs ni en incidencias.
+En forks los secretos no se suministran: el SDK debe ser público
 o debe acordarse un mecanismo de acceso; nunca usar pull_request_target para ejecutar
 código no confiable con ese secreto. No se debe retirar la dependencia ni omitir sus
 pruebas para ocultar un fallo de checkout.
