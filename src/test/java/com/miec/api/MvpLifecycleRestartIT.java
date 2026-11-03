@@ -280,6 +280,10 @@ class MvpLifecycleRestartIT {
                 var cycle=json.readTree(get(first.base(),"/api/cycles/"+cycleId).body());
                 var response=checkedPost(first,"/api/cycles/"+cycleId+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",cycle.path("version").asLong(),"expectedPlanVersion",plan.path("version").asLong(),"reason","ejecutar"),"restart-author",201);
                 assertEquals("APPLIED",response.path("state").asString());assertEquals(1,recipient.effects());
+                var currentCycle=json.readTree(get(first.base(),"/api/cycles/"+cycleId).body());
+                var finalized=checkedPost(first,"/api/plans/"+planId+"/execution/finish",java.util.Map.of("expectedVersion",response.path("version").asLong(),
+                        "expectedCycleVersion",currentCycle.path("version").asLong(),"reason","revisión técnica"),"restart-approver",200);
+                assertEquals("E08_VERIFICANDO",finalized.path("cycleState").asString());
                 runBody=get(first.base(),"/api/plans/"+planId+"/execution").body();
             }
         }
@@ -292,7 +296,7 @@ class MvpLifecycleRestartIT {
                 assertEquals(1,reopened.effects());
             }
         }
-        System.out.println("MVP-03 REINICIO: coordinación IR-009 y efecto HTTP conservados; ledger del destinatario reabierto sin duplicación.");
+        System.out.println("MVP-03 REINICIO: E08, coordinación IR-009 y efecto HTTP conservados; ledger del destinatario reabierto sin duplicación.");
     }
 
     /** Matar la JVM tras el efecto deja incertidumbre durable; reiniciar y recuperar nunca reenvían a ciegas. */
@@ -325,9 +329,22 @@ class MvpLifecycleRestartIT {
                 checkedPost(second,"/api/plans/"+planId+"/execution/resume",java.util.Map.of("expectedVersion",run.path("version").asLong(),"reason","no reenviar"),"restart-author",409);
                 var recovered=checkedPost(second,"/api/plans/"+planId+"/execution/recover",java.util.Map.of("expectedVersion",run.path("version").asLong(),"reason","revisar incertidumbre"),"restart-approver",200);
                 assertEquals("RECOVERY_REQUIRED",recovered.path("state").asString());assertEquals("E13_RECUPERANDO",recovered.path("cycleState").asString());
+                String path="/api/plans/"+planId+"/execution";
+                var permission=checkedPost(second,path+"/reconciliation-requests",java.util.Map.of("expectedVersion",recovered.path("version").asLong(),
+                        "actionId",recovered.path("steps").get(0).path("actionId").asString(),"validForSeconds",600,"reason","consultar después de caída"),"restart-author",201);
+                checkedPost(second,"/api/execution/reconciliation-authorizations/"+permission.path("authorizationId").asString()+"/approve",
+                        java.util.Map.of("expectedVersion",0,"reason","autorizar consulta"),"restart-approver",200);
+                var current=json.readTree(get(second.base(),path).body());
+                var confirmed=checkedPost(second,path+"/reconcile",java.util.Map.of("expectedVersion",current.path("version").asLong(),
+                        "actionId",permission.path("actionId").asString(),"authorizationId",permission.path("authorizationId").asString(),"reason","recuperar efecto remoto"),"restart-approver",200);
+                assertEquals("APPLIED",confirmed.path("state").asString());
+                var currentCycle=json.readTree(get(second.base(),"/api/cycles/"+confirmed.path("cycleId").asString()).body());
+                var finalized=checkedPost(second,path+"/finish",java.util.Map.of("expectedVersion",confirmed.path("version").asLong(),
+                        "expectedCycleVersion",currentCycle.path("version").asLong(),"reason","efecto confirmado tras reinicio"),"restart-approver",200);
+                assertEquals("E08_VERIFICANDO",finalized.path("cycleState").asString());
                 assertEquals(1,recipient.effects());
             }
         }
-        System.out.println("MVP-03 CAÍDA JVM: efecto confirmado en destinatario, incertidumbre preservada en MIEC y cero reenvíos automáticos.");
+        System.out.println("MVP-03 CAÍDA JVM: incertidumbre preservada, consulta remota autorizada, reconciliación y E08; un solo efecto.");
     }
 }

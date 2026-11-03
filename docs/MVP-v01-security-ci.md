@@ -124,8 +124,12 @@ ejecución manual. No despliega, publica artefactos Maven ni envía mensajes.
 
 Las acciones oficiales checkout/setup-java/upload-artifact están fijadas por SHA;
 el token del workflow solo dispone de contents:read y no queda persistido en Git.
-El SDK privado requiere RECIPIENT_SDK_READ_TOKEN con lectura exclusivamente
-de ese repositorio. El workflow no sustituye un secreto ausente por github.token.
+El SDK es público: por defecto el checkout no requiere un PAT adicional ni
+ejecuta la validación obligatoria de secreto. Para una integración privada,
+configurar la variable de repositorio `SDK_PRIVATE=true` y el Repository secret
+`RECIPIENT_SDK_READ_TOKEN` en el repositorio que ejecuta Actions, con lectura de
+Contents del SDK seleccionado. La rama privada del workflow no sustituye un
+secreto ausente por github.token. La rama pública y privada son excluyentes.
 La etapa `Validate SDK credential and pinned source` comprueba el secreto recibido,
 el acceso al repositorio, el commit fijado y el transporte Git, sin registrar el token.
 `SDK_SECRET_MISSING` indica que el runner no recibió el secreto; `SDK_TOKEN_REJECTED`

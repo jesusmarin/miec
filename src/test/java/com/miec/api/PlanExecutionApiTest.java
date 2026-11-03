@@ -112,6 +112,48 @@ class PlanExecutionApiTest {
         var operation=paths.path("/api/cycles/{cycleId}/plans/{planId}/execution").path("post");
         assertFalse(operation.path("security").isEmpty());assertTrue(operation.path("responses").has("409"));
         assertTrue(paths.has("/api/plans/{planId}/execution/recover"));
+        for(String path:List.of("/api/plans/{planId}/execution/finish","/api/plans/{planId}/execution/reconcile",
+                "/api/plans/{planId}/execution/reconciliation-requests","/api/execution/reconciliation-authorizations/{authorizationId}/approve",
+                "/api/execution/reconciliation-authorizations/{authorizationId}/reject")) {
+            assertFalse(paths.path(path).path("post").path("security").isEmpty(),path);
+            assertTrue(paths.path(path).path("post").path("responses").has("409"),path);
+        }
+    }
+
+    /** HTTP completa el efecto con respuesta perdida, autorización humana separada, reconciliación y E08. */
+    @Test void shouldRecoverLostResponseAndFinalizeThroughAuthenticatedApis() throws Exception {
+        var plan=approved(1,true);String id=plan.path("planId").asString();String path="/api/plans/"+id+"/execution";
+        JsonNode run;adapter.onAfterEffect(()->{throw new IllegalStateException("remote-secret-must-not-escape");});
+        try {run=post(startPath(plan),startBody(plan),"author",201);}finally{adapter.onAfterEffect(()->{});}
+        assertEquals("UNKNOWN",run.path("steps").get(0).path("observedOutcome").asString());
+        assertFalse(json.writeValueAsString(run).contains("remote-secret-must-not-escape"));
+        var request=post(path+"/reconciliation-requests",Map.of("expectedVersion",run.path("version").asLong(),"actionId",plan.path("actions").get(0).path("actionId").asString(),"validForSeconds",600,"reason","verificar efecto"),"author",201);
+        assertEquals("RECONCILE_ACTION",request.path("scope").asString());assertEquals("PENDING",request.path("status").asString());
+        String approve="/api/execution/reconciliation-authorizations/"+request.path("authorizationId").asString()+"/approve";
+        post(approve,Map.of("expectedVersion",0,"reason","aprobar consulta"),"author",403);
+        var permission=post(approve,Map.of("expectedVersion",0,"reason","aprobar consulta"),"approver",200);
+        assertEquals("approver",permission.path("approvedBy").asString());
+        var reconcile=Map.of("expectedVersion",get(path).path("version").asLong(),"actionId",request.path("actionId").asString(),"authorizationId",request.path("authorizationId").asString(),"reason","recuperar resultado");
+        post(path+"/reconcile",reconcile,"author",403);
+        run=post(path+"/reconcile",reconcile,"approver",200);assertEquals("APPLIED",run.path("state").asString());
+        var finish=Map.of("expectedVersion",run.path("version").asLong(),"expectedCycleVersion",get("/api/cycles/"+plan.path("cycleId").asString()).path("version").asLong(),"reason","efectos confirmados");
+        assertEquals(401,send("POST",path+"/finish",finish,null).statusCode());post(path+"/finish",finish,"author",403);
+        var forged=new LinkedHashMap<String,Object>(finish);forged.put("actorId","forged");post(path+"/finish",forged,"approver",400);
+        var finalized=post(path+"/finish",finish,"approver",200);assertEquals("E08_VERIFICANDO",finalized.path("cycleState").asString());
+        assertEquals("approver",finalized.path("updatedBy").asString());post(path+"/finish",finish,"approver",409);
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM execution_attempt WHERE plan_id=?",Integer.class,UUID.fromString(id)));
+    }
+
+    /** Errores de entrada y permisos no consultan destinos ni crean autorizaciones de reconciliación. */
+    @Test void shouldRejectInvalidReconciliationRequestsAndUnconfirmedFinalization() throws Exception {
+        var plan=approved(1,true);String path="/api/plans/"+plan.path("planId").asString()+"/execution";
+        JsonNode run;adapter.onAfterEffect(()->{throw new IllegalStateException("lost");});
+        try {run=post(startPath(plan),startBody(plan),"author",201);}finally{adapter.onAfterEffect(()->{});}
+        var request=new LinkedHashMap<String,Object>(Map.of("expectedVersion",run.path("version").asLong(),"actionId",plan.path("actions").get(0).path("actionId").asString(),"validForSeconds",600,"reason","consultar"));
+        post(path+"/reconciliation-requests",request,"approver",403);
+        request.put("validForSeconds",0);post(path+"/reconciliation-requests",request,"author",400);
+        request.put("validForSeconds",600);request.put("destinationUrl","https://untrusted.invalid");post(path+"/reconciliation-requests",request,"author",400);
+        post(path+"/finish",Map.of("expectedVersion",run.path("version").asLong(),"expectedCycleVersion",get("/api/cycles/"+plan.path("cycleId").asString()).path("version").asLong(),"reason","incierto"),"approver",409);
     }
 
     /** Los incidentes públicos conservan códigos e IDs sin mensajes internos ni cuerpos del destinatario. */

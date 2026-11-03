@@ -50,7 +50,9 @@ public class MvpSecurityConfiguration {
         http.authorizeHttpRequests(rules->rules
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/**","/swagger-ui/**","/swagger-ui.html","/v3/api-docs","/v3/api-docs/**","/v3/api-docs.yaml").hasAnyRole("AUTHOR","APPROVER")
-                        .requestMatchers(HttpMethod.POST,"/api/authorizations/*/approve","/api/authorizations/*/reject","/api/plans/*/execution/recover").hasRole("APPROVER")
+                        .requestMatchers(HttpMethod.POST,"/api/authorizations/*/approve","/api/authorizations/*/reject",
+                                "/api/plans/*/execution/recover","/api/plans/*/execution/finish","/api/plans/*/execution/reconcile",
+                                "/api/execution/reconciliation-authorizations/*/approve","/api/execution/reconciliation-authorizations/*/reject").hasRole("APPROVER")
                         .requestMatchers(HttpMethod.POST,"/api/**").hasRole("AUTHOR")
                         .anyRequest().denyAll())
                 .httpBasic(basic->basic.authenticationEntryPoint((request,response,failure)->error(response,401,"AUTHENTICATION_REQUIRED")))

@@ -60,6 +60,9 @@ public class PlanExecutionApplicationService {
      */
     public Run recover(UUID planId,Control command) { return store.recover(planId,command,identity.approver()); }
 
+    /** Confirma E08 únicamente con hechos locales completos, bajo identidad APPROVER y control de versiones. */
+    public Run finish(UUID planId,Finish command) { return store.finish(planId,command,identity.approver()); }
+
     /** Ejecuta secuencialmente; un fallo registrado deja un recurso consultable y bloquea los pasos siguientes. */
     private Run execute(PlanExecutionStore.Claim claim) {
         try(var supervision=new Supervision(claim)) {

@@ -1,5 +1,11 @@
 # Contrato de cierre del MVP v01 — incremento 1
 
+Estado actualizado: [finalización técnica y recuperación](MVP-03-finalization-recovery.md)
+implementan E07/E13 → E08 y consulta/reconciliación APPLIED autorizada. No incorporan
+continuación parcial desde E13, NO_EFFECT por HTTP ni suspensión/aborto operativo.
+Medición posterior, evaluación y cierre siguen pendientes. Las secciones originales
+de este contrato describen el destino y el diagnóstico histórico, no un cierre total.
+
 Estado: contrato base de desarrollo definido para esta secuencia. Este
 documento no declara implementadas las capacidades futuras de los incrementos 3–8.
 Versión del contrato: `MVP-CLOSURE-01`.
