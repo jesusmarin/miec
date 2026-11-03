@@ -1,4 +1,4 @@
-# MVP-01: sistemas y ciclos mediante API local
+# MVP-01: sistemas y ciclos mediante API autenticada
 
 Implementación en seis pasos: comandos, servicios de persistencia, API de creación y
 consulta, inicio con reglas de estados, historial y validación completa.
@@ -13,12 +13,16 @@ consulta, inicio con reglas de estados, historial y validación completa.
 | GET /api/cycles/{cycleId}/history | Página de transiciones con limit 1..100 (50 por defecto), after UUID opcional. |
 
 El servidor asigna UUID, número de ciclo, fechas, estado inicial E00_INACTIVO y A0.
-No se aceptan estados arbitrarios desde JSON. Ciclos y solicitudes de inicio llevan
-X-MIEC-Actor, identidad declarada para auditoría local; no equivale a autenticación.
+No se aceptan estados arbitrarios desde JSON. Todas las rutas requieren Basic.
+AUTHOR crea sistemas, crea ciclos e inicia; AUTHOR y APPROVER consultan.
+X-MIEC-Actor se ignora: los eventos usan el principal autenticado del servidor.
 Registrar un sistema no concede permisos sobre acciones o planes. El MVP no expone
 los servicios de ejecución externa ni modifica sus autorizaciones.
 
-Los comandos se normalizan y validan también al invocar los servicios directamente.
+La fachada LifecycleApplicationService comprueba identidad y roles también fuera
+de HTTP. LifecycleService conserva el contrato de infraestructura interna utilizado
+por los tests y otros servicios; no es un punto de entrada público de red.
+Los comandos se normalizan y validan al invocar los servicios directamente.
 Se reutilizan las tablas existentes. V010 agrega reason nullable a cycle_event
 porque payload_reference no debe utilizarse como almacén de motivos. Los eventos
 históricos conservan reason null. El estado, la versión y su auditoría se guardan
@@ -27,32 +31,36 @@ juntos; la versión evita comenzar dos veces el mismo ciclo.
 El historial devuelve transiciones, no todos los eventos. Antes del primer inicio
 está vacío. La creación conserva su evento CYCLE_CREATED interno. El cursor debe
 pertenecer al ciclo consultado. Los errores distinguen 400, 404, 409 y fallos internos
-500 sin exponer SQL o trazas. El ámbito inicial es local; autenticación de usuarios
-y administración de permisos REST son incrementos posteriores.
+500 sin exponer SQL o trazas; 401 indica autenticación requerida y 403 permisos
+insuficientes. El ámbito inicial sigue siendo local. La gestión de identidades para
+producción y los permisos por objeto/tenant siguen siendo incrementos posteriores.
 
 ## Ejecutar y demostrar
 
-Iniciar MIEC desde el IDE o, en la raíz del proyecto:
+Configurar primero MIEC_AUTHOR_PASSWORD y, si se usa aprobación,
+MIEC_APPROVER_PASSWORD con claves distintas de al menos doce caracteres. Ver
+[seguridad y perfiles](MVP-v01-security-ci.md). Luego iniciar desde el IDE o la raíz:
 
 ```powershell
 .\mvnw.cmd spring-boot:run
 ```
 
-La instancia debe cargar el código nuevo y aplicar V010. Si había una instancia
+La instancia debe cargar el código nuevo y aplicar las migraciones hasta V013. Si había una instancia
 anterior, reiniciarla desde el IDE. El puerto predeterminado es 8081 y la dirección
-local 127.0.0.1; MIEC_SERVER_ADDRESS permite cambiarla explícitamente. Esta entrega
-no incluye autenticación REST: X-MIEC-Actor registra una identidad declarada, no una
-identidad autenticada. No se exponen comandos de planes o ejecución externa.
+local 127.0.0.1; MIEC_SERVER_ADDRESS permite cambiarla explícitamente. Todas las
+rutas requieren autenticación. Planes y permisos existen mediante MVP-02; la API
+de ejecución externa sigue pendiente de los incrementos 3 y 4.
 
 Con la aplicación iniciada, ejecutar manualmente:
 
 ```powershell
-powershell -NoProfile -File .\docs\mvp01-demo.ps1
+$author = Get-Credential -UserName author
+.\docs\mvp01-demo.ps1 -AuthorCredential $author
 ```
 
 El guion crea un sistema y un ciclo nuevos en cada ejecución, inicia el ciclo y
 consulta el historial. Devuelve IDs, E01_INICIALIZANDO, versión 1 y una transición.
-Admite -BaseUrl y -Actor para una instancia local distinta. Su sintaxis se validó;
+Admite -BaseUrl y exige -AuthorCredential. -Actor ya no forma parte del contrato. Su sintaxis se validó;
 la prueba automática equivalente usa archivos y puertos aislados.
 
 Ejemplo independiente del comando de inicio, utilizando el ciclo ya consultado:
@@ -60,7 +68,7 @@ Ejemplo independiente del comando de inicio, utilizando el ciclo ya consultado:
 ```http
 POST /api/cycles/{cycleId}/start
 Content-Type: application/json
-X-MIEC-Actor: operador-local
+Authorization: Basic <credenciales codificadas del autor>
 
 {"expectedVersion":0,"reason":"Iniciar el ciclo de observación"}
 ```
@@ -83,7 +91,7 @@ API. Iniciar bloquea sistema y ciclo en ese orden, comprueba versión/regla F01 
 confirma estado, startedAt, incremento de versión, evento y transición juntos.
 Estos controles no coordinan escrituras SQL directas que omitan los servicios.
 
-## Validaciones realizadas por paso
+## Validaciones históricas del incremento original
 
 | Paso | Resultado |
 |---|---|
@@ -126,4 +134,6 @@ planes y autorización humana mediante la capa de aplicación y sus APIs.
 
 Actualización: ese incremento ya está implementado y validado en
 [MVP-02-intervention.md](MVP-02-intervention.md). Las nuevas rutas tienen
-autenticación y roles; las rutas locales originales de MVP-01 conservan su contrato.
+autenticación y roles. La actualización de [seguridad uniforme](MVP-v01-security-ci.md)
+extiende ahora ese requisito a las rutas originales y sustituye X-MIEC-Actor por
+la identidad del servidor. Los conteos de este documento son históricos.

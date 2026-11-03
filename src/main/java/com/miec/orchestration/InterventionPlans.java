@@ -59,7 +59,9 @@ class InterventionPlans {
         for(var item:json.readTree(document).path("actions")) {
             var description=item.get("description");
             actions.add(new PlanAction(UUID.fromString(item.path("actionId").asString()),item.path("actionType").asString(),
-                    description==null||description.isNull()?null:description.asString()));
+                    description==null||description.isNull()?null:description.asString(),
+                    item.path("execution").isMissingNode()||item.path("execution").isNull()?null:
+                            json.treeToValue(item.path("execution"),com.miec.execution.ExecutableActions.Definition.class)));
         }
         String objectives=rs.getString("objective_ids");
         var objective=objectives==null?null:json.readTree(objectives);

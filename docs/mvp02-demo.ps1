@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 # Cada ejecucion crea recursos nuevos. No se imprimen claves ni cabeceras Basic.
 function Invoke-Mvp02 {
     param([string]$Method,[string]$Path,[object]$Payload,[pscredential]$Credential)
-    $headers = @{ 'X-MIEC-Actor' = $AuthorCredential.UserName }
+    $headers = @{}
     if($null -ne $Credential) {
         $pair = $Credential.UserName + ':' + $Credential.GetNetworkCredential().Password
         $headers.Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))
@@ -23,10 +23,10 @@ function Invoke-Mvp02 {
     Invoke-RestMethod @arguments
 }
 
-$system = Invoke-Mvp02 'Post' '/api/systems' @{ name='MVP02 demo'; ownerReference=$AuthorCredential.UserName } $null
-$cycle = Invoke-Mvp02 'Post' "/api/systems/$($system.systemId)/cycles" @{} $null
+$system = Invoke-Mvp02 'Post' '/api/systems' @{ name='MVP02 demo'; ownerReference=$AuthorCredential.UserName } $AuthorCredential
+$cycle = Invoke-Mvp02 'Post' "/api/systems/$($system.systemId)/cycles" @{} $AuthorCredential
 $base = "/api/cycles/$($cycle.cycleId)"
-$started = Invoke-Mvp02 'Post' "$base/start" @{ expectedVersion=$cycle.version; reason='Iniciar ciclo' } $null
+$started = Invoke-Mvp02 'Post' "$base/start" @{ expectedVersion=$cycle.version; reason='Iniciar ciclo' } $AuthorCredential
 $objective = Invoke-Mvp02 'Post' "$base/initialize" @{ expectedVersion=$started.version; objective='Reducir fallos'; successCriteria='Prueba sin errores'; reason='Definir objetivo' } $AuthorCredential
 $evidence = Invoke-Mvp02 'Post' "$base/observations" @{ expectedVersion=$objective.cycle.version; description='Fallo observado'; reason='Registrar observacion' } $AuthorCredential
 $diagnosis = Invoke-Mvp02 'Post' "$base/diagnosis" @{ expectedVersion=$evidence.cycle.version; evidenceId=$evidence.resourceId; summary='Ajustar proceso'; reason='Diagnostico humano' } $AuthorCredential
@@ -47,5 +47,5 @@ for($index=0; $index -lt $requests.Count; $index++) {
     Write-Output "Decision $operation : $($decision.status)"
 }
 $finalPlan = Invoke-Mvp02 'Get' $planPath $null $ApproverCredential
-$finalCycle = Invoke-Mvp02 'Get' $base $null $null
+$finalCycle = Invoke-Mvp02 'Get' $base $null $AuthorCredential
 [pscustomobject]@{ SystemId=$system.systemId; CycleId=$cycle.cycleId; PlanId=$plan.planId; PlanStatus=$finalPlan.status; CycleState=$finalCycle.state }

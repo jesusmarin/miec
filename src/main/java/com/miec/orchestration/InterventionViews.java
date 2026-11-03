@@ -11,7 +11,10 @@ public final class InterventionViews {
     /** Resultado del paso de preparación y su recurso auditable. */
     public record Preparation(LifecycleViews.CycleView cycle, UUID resourceId) { }
     /** Acción identificada por el servidor, compatible con el JSON v01 existente. */
-    public record PlanAction(UUID actionId, String actionType, String description) { }
+    public record PlanAction(UUID actionId, String actionType, String description,com.miec.execution.ExecutableActions.Definition execution) {
+        /** Una acción histórica mantiene definición ejecutable desconocida. */
+        public PlanAction(UUID actionId,String actionType,String description) { this(actionId,actionType,description,null); }
+    }
     /** Contenido revisable de un plan y su versión de concurrencia. */
     public record Plan(UUID planId, UUID cycleId, UUID objectiveId, UUID diagnosisId, String createdBy,
                        String status, long version, List<PlanAction> actions, String expectedOutcomes,

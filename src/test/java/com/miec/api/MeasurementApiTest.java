@@ -43,10 +43,10 @@ class MeasurementApiTest {
 
     /** Verifica el flujo HTTP medible, consultas y cierre protegido con sus errores de contrato. */
     @Test void shouldRunMeasuredLifecycleOverHttp() throws Exception {
-        var system=post("/api/systems",Map.of("name","mediciones HTTP"),null,201);
-        var cycle=post("/api/systems/"+system.path("systemId").asString()+"/cycles",Map.of(),null,201);
+        var system=post("/api/systems",Map.of("name","mediciones HTTP"),"author",201);
+        var cycle=post("/api/systems/"+system.path("systemId").asString()+"/cycles",Map.of(),"author",201);
         String base="/api/cycles/"+cycle.path("cycleId").asString();
-        post(base+"/start",Map.of("expectedVersion",0,"reason","inicio"),null,200);
+        post(base+"/start",Map.of("expectedVersion",0,"reason","inicio"),"author",200);
         var initialize=Map.of("expectedVersion",1,"objective","Latencia","successCriteria","p95 <= 100 ms","reason","objetivo",
                 "criteria",List.of(Map.of("name","p95","unit","ms","operator","LTE","target",100)));
         assertEquals(401,send("POST",base+"/measurement/initialize",initialize,null).statusCode());

@@ -57,11 +57,16 @@ public class ExecutionOperationRegistry {
                 }
                 return old;
             }
-            UUID key=UUID.nameUUIDFromBytes(("MIEC:"+command.planId()+":"+command.actionId()).getBytes(StandardCharsets.UTF_8));
+            UUID key=operationKey(command.planId(),command.actionId());
             access.jdbc.update("INSERT INTO execution_operation(operation_key,plan_id,planned_action_id,destination_id,request_fingerprint,created_at,request_format,request_media_type,request_body) VALUES (?,?,?,?,?,?,'UTF8-V1',?,?)",
                     key,command.planId(),command.actionId(),target,hash,Timestamp.from(access.activity.databaseNow()),request.mediaType(),request.body());
             return new Operation(key,command.planId(),command.actionId(),target,hash,request);
         }));
+    }
+
+    /** Identidad lógica determinista compartida con coordinación; calcularla no reserva ni ejecuta nada. */
+    public static UUID operationKey(UUID planId,UUID actionId) {
+        return UUID.nameUUIDFromBytes(("MIEC:"+Objects.requireNonNull(planId)+":"+Objects.requireNonNull(actionId)).getBytes(StandardCharsets.UTF_8));
     }
 
     /**

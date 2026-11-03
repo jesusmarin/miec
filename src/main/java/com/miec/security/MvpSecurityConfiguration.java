@@ -10,10 +10,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.http.HttpMethod;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
-/** Autenticación local del MVP-02; sin credenciales incorporadas, sesiones ni confianza en cabeceras de actor. */
+/** Seguridad uniforme del MVP; sin claves incorporadas ni confianza en cabeceras de actor. */
 @Configuration(proxyBeanMethods=false)
 public class MvpSecurityConfiguration {
     /** Usa el codificador estándar; las claves recibidas por configuración se conservan como hashes en el manager. */
@@ -43,14 +45,17 @@ public class MvpSecurityConfiguration {
         users.createUser(User.withUsername(name).password(encoder.encode(password)).roles(role).build());
     }
 
-    /** Protege las nuevas rutas; MVP-01 mantiene su contrato local anterior y no concede permisos de intervención. */
+    /** Protege toda la aplicación por defecto; únicamente los métodos y rutas previstos reciben permisos. */
     @Bean SecurityFilterChain interventionSecurity(HttpSecurity http) throws Exception {
-        http.securityMatcher("/api/cycles/*/measurement/**","/api/cycles/*/measurement","/swagger-ui/**","/swagger-ui.html","/v3/api-docs.yaml","/v3/api-docs/**","/api/plans/**","/api/authorizations/**","/api/cycles/*/initialize",
-                        "/api/cycles/*/observations","/api/cycles/*/diagnosis","/api/cycles/*/plans")
-                .authorizeHttpRequests(rules->rules.anyRequest().authenticated())
+        http.authorizeHttpRequests(rules->rules
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/**","/swagger-ui/**","/swagger-ui.html","/v3/api-docs","/v3/api-docs/**","/v3/api-docs.yaml").hasAnyRole("AUTHOR","APPROVER")
+                        .requestMatchers(HttpMethod.POST,"/api/authorizations/*/approve","/api/authorizations/*/reject","/api/plans/*/execution/recover").hasRole("APPROVER")
+                        .requestMatchers(HttpMethod.POST,"/api/**").hasRole("AUTHOR")
+                        .anyRequest().denyAll())
                 .httpBasic(basic->basic.authenticationEntryPoint((request,response,failure)->error(response,401,"AUTHENTICATION_REQUIRED")))
                 .sessionManagement(sessions->sessions.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .requestCache(cache->cache.disable()).csrf(csrf->csrf.disable())
+                .requestCache(cache->cache.disable()).csrf(csrf->csrf.ignoringRequestMatchers("/api/**"))
                 .formLogin(form->form.disable()).logout(logout->logout.disable())
                 .exceptionHandling(errors->errors
                         .authenticationEntryPoint((request,response,failure)->error(response,401,"AUTHENTICATION_REQUIRED"))

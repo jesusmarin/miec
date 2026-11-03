@@ -29,7 +29,11 @@ public final class InterventionCommands {
 
     /** Catálogo inicial limitado; describir una acción no la ejecuta ni habilita un comando arbitrario. */
     public record Action(@NotBlank @Pattern(regexp="PROCESS_EXECUTION") String actionType,
-                         @NotBlank @Size(max=500) String description) { }
+                         @NotBlank @Size(max=500) String description,
+                         @Valid com.miec.execution.ExecutableActions.Spec execution) {
+        /** Compatibilidad de código con planes descriptivos históricos; no les atribuye ejecutabilidad. */
+        public Action(String actionType,String description) { this(actionType,description,null); }
+    }
 
     /** Plan inmutable por API, con hasta veinte acciones identificadas por el servidor. */
     public record ProposePlan(@NotNull @PositiveOrZero Long expectedVersion, @NotNull UUID objectiveId,

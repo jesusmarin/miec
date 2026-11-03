@@ -28,7 +28,8 @@ anterior. No se modifican migraciones publicadas.
 ## API
 Todas las rutas nuevas requieren HTTP Basic con las cuentas configuradas por
 MIEC_AUTHOR_PASSWORD y MIEC_APPROVER_PASSWORD. Sin claves no hay acceso.
-Las rutas históricas de sistemas/ciclos permanecen locales con el contrato MVP-01.
+Las rutas de sistemas/ciclos también requieren Basic desde el incremento de
+[seguridad uniforme](MVP-v01-security-ci.md); el actor procede del servidor.
 
 | Método | Ruta | Rol | Resultado |
 |---|---|---|---|
@@ -63,8 +64,8 @@ Basic del navegador. El documento /v3/api-docs también est? protegido. La opci�
 Authorize permite enviar Basic en las llamadas; persistAuthorization est? desactivado.
 Nunca incluir contraseñas en URL, ejemplos ni repositorio. El navegador puede conservar
 su autenticación Basic durante la sesión: cerrar la sesión del navegador compartido.
-Las rutas históricas no muestran un requisito Basic ficticio. Uso local por defecto;
-la exposición remota requiere TLS y revisar la seguridad de todas las rutas históricas.
+Todas las rutas de la API documentan ahora Basic. Uso local por defecto;
+la exposición remota requiere TLS y controles de despliegue adicionales.
 Referencia: https://springdoc.org/faq.html
 
 ## Demostración

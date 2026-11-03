@@ -86,8 +86,9 @@ $env:MIEC_APPROVER_PASSWORD = [System.Net.NetworkCredential]::new('', $approverK
 X-MIEC-Actor se ignora como fuente de autoridad en estas rutas. Se utiliza el
 Authentication de Spring Security también en la fachada pública de servicios.
 El flujo transaccional de bajo nivel es interno al paquete de aplicación.
-MVP-01 conserva sus rutas locales anteriores; esta entrega no afirma que todos
-sus endpoints estén autenticados ni introduce permisos de ejecución mediante ellos.
+La actualización de [seguridad uniforme](MVP-v01-security-ci.md) protege también
+las rutas de MVP-01 y resuelve su identidad en el servidor. No se introducen
+permisos de ejecución externa mediante estas rutas.
 
 Referencia de configuración: [Spring Security, Java Configuration](https://docs.spring.io/spring-security/reference/servlet/configuration/java.html).
 

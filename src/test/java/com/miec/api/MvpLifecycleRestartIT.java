@@ -33,7 +33,7 @@ class MvpLifecycleRestartIT {
 
     /** Envía comandos reales a la aplicación aislada, incluyendo la identidad de auditoría. */
     private HttpResponse<String> post(URI base, String path, String body) throws Exception {
-        return post(base,path,body,null);
+        return post(base,path,body,"restart-author");
     }
 
     /** Envía una identidad real del servidor, sin colocar su secreto en argumentos de proceso o archivos. */
@@ -47,7 +47,7 @@ class MvpLifecycleRestartIT {
 
     /** Consulta el servidor hijo sin usar servicios o repositorios del proceso de pruebas. */
     private HttpResponse<String> get(URI base, String path) throws IOException, InterruptedException {
-        return get(base,path,null);
+        return get(base,path,"restart-author");
     }
 
     /** Consulta recursos protegidos después de reiniciar sin reutilizar sesiones del proceso anterior. */
@@ -65,6 +65,11 @@ class MvpLifecycleRestartIT {
 
     /** Inicia el JAR contra un archivo propio y espera una respuesta de la API, con plazo finito. */
     private Running start(Path jar, Path directory, String database, int generation) throws Exception {
+        return start(jar,directory,database,generation,java.util.Map.of());
+    }
+
+    /** Configura un destinatario aislado únicamente para las pruebas de ejecución del JAR. */
+    private Running start(Path jar,Path directory,String database,int generation,java.util.Map<String,String> recipient) throws Exception {
         int port;
         try (var socket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) { port = socket.getLocalPort(); }
         Path log = directory.resolve("miec-" + generation + ".log");
@@ -78,6 +83,11 @@ class MvpLifecycleRestartIT {
         builder.environment().put("MIEC_AUTHOR_PASSWORD",authorPassword);
         builder.environment().put("MIEC_APPROVER_USERNAME","restart-approver");
         builder.environment().put("MIEC_APPROVER_PASSWORD",approverPassword);
+        builder.environment().putAll(recipient);
+        if(!recipient.isEmpty()) {
+            builder.command().add("--miec.execution.lease-duration=PT5S");
+            builder.command().add("--miec.execution.heartbeat-interval=PT1S");
+        }
         var process=builder.start();
         var running = new Running(process, URI.create("http://127.0.0.1:" + port));
         try {
@@ -228,4 +238,96 @@ class MvpLifecycleRestartIT {
         System.out.println("MVP v01 MEDICIONES: objetivo, indicadores, línea base y cierre conservados entre dos JVM.");
     }
 
+    /** Comando JSON con identidad real y comprobación de HTTP antes de leer el resultado. */
+    private tools.jackson.databind.JsonNode checkedPost(Running running,String path,Object command,String user,int status) throws Exception {
+        var response=post(running.base(),path,json.writeValueAsString(command),user);
+        assertEquals(status,response.statusCode(),response.body());return json.readTree(response.body());
+    }
+
+    /** Crea y aprueba un plan ejecutable íntegramente por las APIs del JAR. */
+    private tools.jackson.databind.JsonNode executablePlan(Running running) throws Exception {
+        var system=checkedPost(running,"/api/systems",java.util.Map.of("name","ejecución entre JVM"),"restart-author",201);
+        var cycle=checkedPost(running,"/api/systems/"+system.path("systemId").asString()+"/cycles",java.util.Map.of(),"restart-author",201);
+        String path="/api/cycles/"+cycle.path("cycleId").asString();
+        checkedPost(running,path+"/start",java.util.Map.of("expectedVersion",0,"reason","inicio"),"restart-author",200);
+        var objective=checkedPost(running,path+"/initialize",java.util.Map.of("expectedVersion",1,"objective","objetivo","successCriteria","criterio","reason","r"),"restart-author",200);
+        var observation=checkedPost(running,path+"/observations",java.util.Map.of("expectedVersion",2,"description","dato","reason","r"),"restart-author",200);
+        checkedPost(running,path+"/diagnosis",java.util.Map.of("expectedVersion",3,"evidenceId",observation.path("resourceId").asString(),"summary","diagnóstico","reason","r"),"restart-author",200);
+        var spec=java.util.Map.of("adapterId","http-recipient-v1","adapterVersion","1","destinationId","restart-destination","mediaType","application/json","body","{\"change\":1}");
+        var plan=checkedPost(running,path+"/plans",java.util.Map.of("expectedVersion",4,"objectiveId",objective.path("resourceId").asString(),"expectedOutcomes","resultado","rollbackStrategy","restaurar",
+                "actions",java.util.List.of(java.util.Map.of("actionType","PROCESS_EXECUTION","description","acción HTTP","execution",spec))),"restart-author",201);
+        var request=checkedPost(running,"/api/plans/"+plan.path("planId").asString()+"/authorization-requests",java.util.Map.of("expectedPlanVersion",0,"actionId",plan.path("actions").get(0).path("actionId").asString(),"validForSeconds",600),"restart-author",201);
+        checkedPost(running,"/api/authorizations/"+request.path("authorizationId").asString()+"/approve",java.util.Map.of("expectedVersion",0,"reason","aprobar"),"restart-approver",200);
+        return json.readTree(get(running.base(),"/api/plans/"+plan.path("planId").asString()).body());
+    }
+
+    /** Variables de servidor; la clave no aparece en argumentos de proceso ni en archivos. */
+    private java.util.Map<String,String> recipientEnvironment(com.miec.integration.contract.HttpRecipientFixture recipient) {
+        return java.util.Map.of("MIEC_RECIPIENT_ENABLED","true","MIEC_RECIPIENT_DESTINATION_ID","restart-destination",
+                "MIEC_RECIPIENT_BASE_URL",recipient.base().toString(),"MIEC_RECIPIENT_API_KEY",com.miec.integration.contract.HttpRecipientFixture.API_KEY);
+    }
+
+    /** MIEC y el ledger del destinatario se reabren conservando efecto y resultado sin nuevos envíos. */
+    @Test void shouldPersistExecutableRunAndRecipientEffectAcrossRestart() throws Exception {
+        Path jar=Path.of(java.util.Objects.requireNonNull(System.getProperty("miec.mvp.jar"))).toAbsolutePath();
+        Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","execution-restart-it")),"run-").toAbsolutePath();
+        String database="jdbc:h2:file:"+directory.resolve("miec").toString().replace('\\','/')+";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
+        String recipientDb="jdbc:h2:file:"+directory.resolve("recipient").toString().replace('\\','/')+";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
+        String planId,cycleId,runBody;
+        try(var recipient=new com.miec.integration.contract.HttpRecipientFixture(recipientDb)) {
+            try(var first=start(jar,directory,database,1,recipientEnvironment(recipient))) {
+                var plan=executablePlan(first);planId=plan.path("planId").asString();cycleId=plan.path("cycleId").asString();
+                var cycle=json.readTree(get(first.base(),"/api/cycles/"+cycleId).body());
+                var response=checkedPost(first,"/api/cycles/"+cycleId+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",cycle.path("version").asLong(),"expectedPlanVersion",plan.path("version").asLong(),"reason","ejecutar"),"restart-author",201);
+                assertEquals("APPLIED",response.path("state").asString());assertEquals(1,recipient.effects());
+                runBody=get(first.base(),"/api/plans/"+planId+"/execution").body();
+            }
+        }
+        awaitFileUnlock(directory.resolve("miec.mv.db"));
+        try(var reopened=new com.miec.integration.contract.HttpRecipientFixture(recipientDb)) {
+            assertEquals(1,reopened.effects());
+            try(var second=start(jar,directory,database,2,recipientEnvironment(reopened))) {
+                assertEquals(json.readTree(runBody),json.readTree(get(second.base(),"/api/plans/"+planId+"/execution").body()));
+                checkedPost(second,"/api/cycles/"+cycleId+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",0,"expectedPlanVersion",0,"reason","repetido"),"restart-author",409);
+                assertEquals(1,reopened.effects());
+            }
+        }
+        System.out.println("MVP-03 REINICIO: coordinación IR-009 y efecto HTTP conservados; ledger del destinatario reabierto sin duplicación.");
+    }
+
+    /** Matar la JVM tras el efecto deja incertidumbre durable; reiniciar y recuperar nunca reenvían a ciegas. */
+    @Test void shouldBlockReplayAfterJvmDiesFollowingRecipientCommit() throws Exception {
+        Path jar=Path.of(java.util.Objects.requireNonNull(System.getProperty("miec.mvp.jar"))).toAbsolutePath();
+        Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","execution-crash-it")),"run-").toAbsolutePath();
+        String database="jdbc:h2:file:"+directory.resolve("miec").toString().replace('\\','/')+";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
+        String recipientDb="jdbc:h2:file:"+directory.resolve("recipient").toString().replace('\\','/')+";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
+        try(var recipient=new com.miec.integration.contract.HttpRecipientFixture(recipientDb)) {
+            recipient.mode("HOLD_AFTER_COMMIT");String planId;
+            try(var first=start(jar,directory,database,1,recipientEnvironment(recipient))) {
+                var plan=executablePlan(first);planId=plan.path("planId").asString();String cycleId=plan.path("cycleId").asString();
+                var cycle=json.readTree(get(first.base(),"/api/cycles/"+cycleId).body());
+                var request=HttpRequest.newBuilder(first.base().resolve("/api/cycles/"+cycleId+"/plans/"+planId+"/execution"))
+                        .header("Content-Type","application/json").timeout(Duration.ofSeconds(30))
+                        .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(java.util.Map.of("expectedCycleVersion",cycle.path("version").asLong(),"expectedPlanVersion",plan.path("version").asLong(),"reason","probar caída"))));
+                authenticate(request,"restart-author");var pending=client.sendAsync(request.build(),HttpResponse.BodyHandlers.ofString());
+                try {
+                    assertTrue(recipient.awaitCommit());first.process().destroyForcibly();assertTrue(first.process().waitFor(10,TimeUnit.SECONDS));
+                } finally { pending.cancel(true);recipient.release(); }
+            }
+            awaitFileUnlock(directory.resolve("miec.mv.db"));
+            try(var second=start(jar,directory,database,2,recipientEnvironment(recipient))) {
+                var run=json.readTree(get(second.base(),"/api/plans/"+planId+"/execution").body());
+                long deadline=System.nanoTime()+Duration.ofSeconds(15).toNanos();
+                while(!run.path("requiresReview").asBoolean()&&System.nanoTime()<deadline) {
+                    TimeUnit.MILLISECONDS.sleep(100);run=json.readTree(get(second.base(),"/api/plans/"+planId+"/execution").body());
+                }
+                assertTrue(run.path("requiresReview").asBoolean());
+                checkedPost(second,"/api/plans/"+planId+"/execution/resume",java.util.Map.of("expectedVersion",run.path("version").asLong(),"reason","no reenviar"),"restart-author",409);
+                var recovered=checkedPost(second,"/api/plans/"+planId+"/execution/recover",java.util.Map.of("expectedVersion",run.path("version").asLong(),"reason","revisar incertidumbre"),"restart-approver",200);
+                assertEquals("RECOVERY_REQUIRED",recovered.path("state").asString());assertEquals("E13_RECUPERANDO",recovered.path("cycleState").asString());
+                assertEquals(1,recipient.effects());
+            }
+        }
+        System.out.println("MVP-03 CAÍDA JVM: efecto confirmado en destinatario, incertidumbre preservada en MIEC y cero reenvíos automáticos.");
+    }
 }

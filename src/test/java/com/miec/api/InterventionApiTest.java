@@ -42,10 +42,10 @@ class InterventionApiTest {
 
     /** Prepara el plan íntegramente desde las APIs y las reglas de estados existentes. */
     private JsonNode plan(int actions) throws Exception {
-        var system=post("/api/systems",Map.of("name","MVP-02 HTTP"),null,201);
-        var cycle=post("/api/systems/"+system.path("systemId").asString()+"/cycles",Map.of(),null,201);
+        var system=post("/api/systems",Map.of("name","MVP-02 HTTP"),"author",201);
+        var cycle=post("/api/systems/"+system.path("systemId").asString()+"/cycles",Map.of(),"author",201);
         String base="/api/cycles/"+cycle.path("cycleId").asString();
-        post(base+"/start",Map.of("expectedVersion",0,"reason","inicio"),null,200);
+        post(base+"/start",Map.of("expectedVersion",0,"reason","inicio"),"author",200);
         var objective=post(base+"/initialize",Map.of("expectedVersion",1,"objective","Reducir fallos","successCriteria","Prueba satisfactoria","reason","inicializar"),"author",200);
         var evidence=post(base+"/observations",Map.of("expectedVersion",2,"description","Fallo observado","reason","observar"),"author",200);
         post(base+"/diagnosis",Map.of("expectedVersion",3,"evidenceId",evidence.path("resourceId").asString(),"summary","Ajustar proceso","reason","diagnosticar"),"author",200);
@@ -101,7 +101,8 @@ class InterventionApiTest {
         assertEquals("approver",approved.path("approvedBy").asString());
         assertEquals("approver",approved.path("decision").path("decidedBy").asString());
         assertEquals(409,send("POST",path+"/reject",Map.of("expectedVersion",0,"reason","repetido"),"approver").statusCode());
-        var cycle=send("GET","/api/cycles/"+plan.path("cycleId").asString(),null,null);
+        var cycle=send("GET","/api/cycles/"+plan.path("cycleId").asString(),null,"author");
+        assertEquals(200,cycle.statusCode(),cycle.body());
         assertEquals("E06_PREPARADO",json.readTree(cycle.body()).path("state").asString());
     }
 
@@ -114,7 +115,7 @@ class InterventionApiTest {
                 Map.of("expectedVersion",0,"reason","riesgo no aceptado"),"approver",200);
         assertEquals("REJECTED",rejected.path("status").asString());
         assertEquals("riesgo no aceptado",rejected.path("decision").path("reason").asString());
-        assertEquals("E12_SUSPENDIDO",json.readTree(send("GET","/api/cycles/"+plan.path("cycleId").asString(),null,null).body()).path("state").asString());
+        assertEquals("E12_SUSPENDIDO",json.readTree(send("GET","/api/cycles/"+plan.path("cycleId").asString(),null,"author").body()).path("state").asString());
     }
 
     /** Varias acciones necesitan todas sus revisiones; una aprobación parcial no produce E06. */
@@ -126,7 +127,7 @@ class InterventionApiTest {
                 "actionId",plan.path("actions").get(1).path("actionId").asString(),"validForSeconds",600),"author",201);
         var partial=post("/api/authorizations/"+first.path("authorizationId").asString()+"/approve",Map.of("expectedVersion",0,"reason","primera"),"approver",200);
         assertEquals("APPROVED_PENDING_PLAN",partial.path("status").asString());
-        assertEquals("E05_ESPERANDO_AUTORIZACION",json.readTree(send("GET","/api/cycles/"+plan.path("cycleId").asString(),null,null).body()).path("state").asString());
+        assertEquals("E05_ESPERANDO_AUTORIZACION",json.readTree(send("GET","/api/cycles/"+plan.path("cycleId").asString(),null,"author").body()).path("state").asString());
         post("/api/authorizations/"+second.path("authorizationId").asString()+"/approve",Map.of("expectedVersion",0,"reason","segunda"),"approver",200);
         assertEquals("APPROVED",json.readTree(send("GET","/api/authorizations/"+first.path("authorizationId").asString(),null,"author").body()).path("status").asString());
     }
