@@ -25,6 +25,7 @@ El MVP v01 completo no se declara cerrado.
 - [Evaluación: políticas, evaluador y persistencia, 06.1–06.3](docs/MVP-06-evaluation.md).
 - [Decisión, aprendizaje y cierre E14, 06.4–06.6](docs/MVP-06-decision-closure.md).
 - [Diseño del siguiente incremento: nuevas rondas](docs/MVP-next-rounds-design.md).
+- [Ronda inicial y conclusión operativa: MVP-07.1–07.3](docs/MVP-07-rounds.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto
 la aplicación escucha en 127.0.0.1:8081 y mantiene apagada la consola H2. Swagger,

@@ -283,7 +283,7 @@ class MvpLifecycleRestartIT {
         Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","execution-restart-it")),"run-").toAbsolutePath();
         String database="jdbc:h2:file:"+directory.resolve("miec").toString().replace('\\','/')+";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
         String recipientDb="jdbc:h2:file:"+directory.resolve("recipient").toString().replace('\\','/')+";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
-        String planId,cycleId,runBody,measurementBody,completionBody;
+        String planId,cycleId,runBody,measurementBody,completionBody,roundBody;
         try(var recipient=new com.miec.integration.contract.HttpRecipientFixture(recipientDb)) {
             try(var first=start(jar,directory,database,1,recipientEnvironment(recipient))) {
                 var plan=executablePlan(first);planId=plan.path("planId").asString();cycleId=plan.path("cycleId").asString();
@@ -296,6 +296,7 @@ class MvpLifecycleRestartIT {
                 assertEquals("E08_VERIFICANDO",finalized.path("cycleState").asString());
                 measurementBody=postMeasurements(first,cycleId,planId,finalized.path("runId").asString());
                 completionBody=completeCycle(first,cycleId,planId,json.readTree(measurementBody));
+                roundBody=get(first.base(),"/api/cycles/"+cycleId+"/rounds").body();
                 measurementBody=get(first.base(),"/api/cycles/"+cycleId+"/plans/"+planId+"/measurements").body();
                 runBody=get(first.base(),"/api/plans/"+planId+"/execution").body();
             }
@@ -307,6 +308,7 @@ class MvpLifecycleRestartIT {
                 assertEquals(json.readTree(runBody),json.readTree(get(second.base(),"/api/plans/"+planId+"/execution").body()));
                 assertEquals(json.readTree(measurementBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/plans/"+planId+"/measurements").body()));
                 assertEquals(json.readTree(completionBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/completion").body()));
+                assertEquals(json.readTree(roundBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/rounds").body()));
                 assertEquals("E14_FINALIZADO",json.readTree(completionBody).path("cycle").path("state").asString());
                 assertEquals("UNVERIFIED",json.readTree(measurementBody).path("measurements").get(0).path("qualityStatus").asString());
                 checkedPost(second,"/api/cycles/"+cycleId+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",0,"expectedPlanVersion",0,"reason","repetido"),"restart-author",409);
@@ -348,7 +350,12 @@ class MvpLifecycleRestartIT {
         var learned=checkedPost(running,root+"/learning",java.util.Map.of("expectedVersion",decision.path("cycle").path("version").asLong(),
                 "decisionId",decision.path("decision").path("decisionId").asString(),"statement","No se acreditó mejora concluyente","conditions","laboratorio",
                 "limitations","Evidencia humana y ausencia de causalidad","reason","aprender"),"restart-author",200);
-        var closed=checkedPost(running,root+"/close",java.util.Map.of("expectedVersion",learned.path("cycle").path("version").asLong(),
+        var registered=checkedPost(running,root+"/rounds/initial",java.util.Map.of("expectedCycleVersion",learned.path("cycle").path("version").asLong(),"reason","initial round"),"restart-author",200);
+        var round=registered.path("rounds").get(0);
+        var concluded=checkedPost(running,root+"/rounds/"+round.path("roundId").asString()+"/plan-completion",java.util.Map.of(
+                "expectedCycleVersion",registered.path("cycle").path("version").asLong(),"expectedRoundVersion",0,"reason","operational completion"),"restart-approver",200);
+        assertEquals("PLAN-COMPLETION-V1",concluded.path("rounds").get(0).path("conclusion").path("policyVersion").asString());
+        var closed=checkedPost(running,root+"/close",java.util.Map.of("expectedVersion",concluded.path("cycle").path("version").asLong(),
                 "learningId",learned.path("learning").path("learningId").asString(),"summary","Ciclo concluido sin éxito acreditado","acknowledgeLimitations",true,"reason","cerrar"),"restart-approver",200);
         assertEquals("E14_FINALIZADO",closed.path("cycle").path("state").asString());assertFalse(closed.path("closure").path("closedAt").asString().isBlank());
         return get(running.base(),root+"/completion").body();
