@@ -59,7 +59,7 @@ class DefaultDecisionEngineTest {
 
         assertThat(outcome.recommendation().action()).isEqualTo(DecisionAction.ADJUST_PLAN);
         assertThat(outcome.transitionProposal().proposedState())
-                .isEqualTo(CycleState.E04_PLANIFICANDO);
+                .isEqualTo(CycleState.E10_APRENDIENDO);
     }
 
     @Test
@@ -71,7 +71,7 @@ class DefaultDecisionEngineTest {
 
         assertThat(outcome.recommendation().action()).isEqualTo(DecisionAction.COLLECT_EVIDENCE);
         assertThat(outcome.transitionProposal().proposedState())
-                .isEqualTo(CycleState.E02_OBSERVANDO);
+                .isEqualTo(CycleState.E10_APRENDIENDO);
     }
 
     @Test
@@ -145,6 +145,19 @@ class DefaultDecisionEngineTest {
 
         assertThat(outcome.transitionProposal().sourceState())
                 .isEqualTo(CycleState.E09_DECIDIENDO);
+    }
+
+    /** Todas las intenciones conservan una transición inmediata válida, sin modificar la estrategia. */
+    @Test @DisplayName("Todas las acciones estratégicas conservan E09 a E10 conforme a F01")
+    void shouldKeepEveryImmediateProposalValidForF01() {
+        var evaluation=createEvaluation(ResultClassification.INCONCLUSIVE);
+        for(var action:DecisionAction.values()) {
+            var alternative=new AlternativeAssessment(action,true,"intención de test","registrar intención",List.of(),null,false);
+            var testEngine=new DefaultDecisionEngine(ignored->List.of(alternative),items->items.getFirst());
+            var result=testEngine.decide(evaluation);
+            assertThat(result.recommendation().action()).isEqualTo(action);
+            assertThat(com.miec.domain.Cycle.isValidTransition(result.transitionProposal().sourceState(),result.transitionProposal().proposedState())).isTrue();
+        }
     }
 
     private EvaluationResult createEvaluation(ResultClassification classification) {

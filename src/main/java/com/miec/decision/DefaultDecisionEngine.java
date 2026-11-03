@@ -11,9 +11,9 @@ import java.util.UUID;
 /**
  * Implementación concreta del motor de decisión del MIEC (MIEC-F02, MD-05).
  *
- * <p>Esta clase orquesta la evaluación completa de un ciclo, integrando
- * la validación de evidencia, la evaluación de resultados, la generación
- * de alternativas y la selección de una recomendación y transición propuesta.
+ * <p>Consume una evaluación ya validada, genera alternativas y selecciona una
+ * recomendación estratégica. No valida fuentes ni calcula resultados numéricos.
+ * La transición inmediata E09 a E10 conserva F01 independientemente de la intención.
  *
  * <p>El motor no ejecuta acciones, no modifica el estado del ciclo y no
  * concede autorizaciones. Su única responsabilidad es producir un
@@ -21,7 +21,7 @@ import java.util.UUID;
  *
  * <p>Invariantes:
  * <ul>
- *   <li>El motor valida la evidencia antes de clasificar resultados (F02 §6).</li>
+ *   <li>La evaluación de entrada conserva la suficiencia validada previamente.</li>
  *   <li>El motor respeta la regla F07-R01: no declara un resultado concluyente
  *       con evidencia EV-0 o EV-1.</li>
  *   <li>El motor aplica el filtro de admisibilidad antes de comparar beneficios
@@ -74,8 +74,15 @@ public class DefaultDecisionEngine implements DecisionEngine {
      */
     @Override
     public DecisionOutcome decide(EvaluationResult evaluationResult) {
+        Objects.requireNonNull(evaluationResult,"El resultado de evaluación es obligatorio");
+        return decide(evaluationResult,evaluationResult.evaluatedAt());
+    }
+
+    /** Usa un instante explícito del llamador, sin introducir dependencia del reloj en la recomendación. */
+    public DecisionOutcome decide(EvaluationResult evaluationResult,Instant at) {
         Objects.requireNonNull(evaluationResult,
                 "El resultado de evaluación es obligatorio");
+        Objects.requireNonNull(at,"El instante de recomendación es obligatorio");
 
         // Paso 1: Generar alternativas según la clasificación
         List<AlternativeAssessment> alternatives =
@@ -90,7 +97,7 @@ public class DefaultDecisionEngine implements DecisionEngine {
         AlternativeAssessment recommended =
                 alternativeEvaluator.evaluateAlternatives(alternatives);
 
-        if (recommended == null) {
+        if (recommended == null || !recommended.admissible() || !alternatives.contains(recommended)) {
             throw new IllegalArgumentException(
                     "No existe ninguna alternativa admisible");
         }
@@ -100,13 +107,13 @@ public class DefaultDecisionEngine implements DecisionEngine {
                 recommended.action(),
                 buildRecommendationRationale(evaluationResult, recommended),
                 evaluationResult.evidenceAssessment().evidenceIds(),
-                Instant.now()
+                at
         );
 
         // Paso 4: Proponer transición según la acción
         TransitionProposal transition = proposeTransition(
                 evaluationResult,
-                recommended.action()
+                recommended.action(),at
         );
 
         // Paso 5: Construir el resultado completo
@@ -146,7 +153,7 @@ public class DefaultDecisionEngine implements DecisionEngine {
      */
     private TransitionProposal proposeTransition(
             EvaluationResult evaluation,
-            DecisionAction action) {
+            DecisionAction action,Instant at) {
 
         CycleState targetState = determineTargetState(action);
 
@@ -154,31 +161,21 @@ public class DefaultDecisionEngine implements DecisionEngine {
                 CycleState.E09_DECIDIENDO,
                 targetState,
                 buildTransitionRationale(action),
-                Instant.now()
+                at
         );
     }
 
     /**
      * Determina el estado objetivo según la acción recomendada.
      *
-     * <p>Esta implementación utiliza una tabla de decisión simplificada.
-     * Las transiciones definitivas deberán validarse contra F01.
+     * <p>La acción es estratégica; no selecciona un destino inmediato fuera de F01.
      *
      * @param action acción recomendada
      * @return estado objetivo propuesto
      */
     private CycleState determineTargetState(DecisionAction action) {
-        return switch (action) {
-            case CLOSE_CYCLE -> CycleState.E10_APRENDIENDO;
-            case ADJUST_PLAN, REFORMULATE_HYPOTHESIS -> CycleState.E04_PLANIFICANDO;
-            case COLLECT_EVIDENCE, ESTABLISH_BASELINE -> CycleState.E02_OBSERVANDO;
-            case MAINTAIN_CURRENT_STATE -> CycleState.E10_APRENDIENDO;
-            case REVERT_CHANGE -> CycleState.E13_RECUPERANDO;
-            case REQUEST_HUMAN_REVIEW -> CycleState.E05_ESPERANDO_AUTORIZACION;
-            case SUSPEND_CYCLE -> CycleState.E12_SUSPENDIDO;
-            case ABORT_INTERVENTION -> CycleState.E15_ABORTADO;
-            case CONTINUE_PLAN -> CycleState.E10_APRENDIENDO;
-        };
+        Objects.requireNonNull(action);
+        return CycleState.E10_APRENDIENDO;
     }
 
     /**

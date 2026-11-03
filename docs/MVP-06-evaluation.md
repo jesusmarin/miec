@@ -1,5 +1,9 @@
 # MVP-06 — evaluación, pasos 06.1–06.3
 
+Actualización: [06.4–06.6](MVP-06-decision-closure.md) incorpora creación operativa,
+decisión humana, aprendizaje y cierre. El resto conserva el alcance histórico de
+06.1–06.3; sus referencias a funciones pendientes se interpretan con esta actualización.
+
 ## 06.0 Base validada
 
 MVP-05 está integrado en master 90172c4. El workflow 41699066895 terminó success.

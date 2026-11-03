@@ -6,8 +6,9 @@ El núcleo IR-009 gestiona intentos e idempotencia y está conectado al ciclo pr
 mediante coordinación durable y APIs de ejecución. Incluye finalización técnica
 hacia E08 y reconciliación remota autorizada de efectos aplicados. Registra mediciones
 posteriores, revisiones humanas separadas y conjuntos fijos de comparación.
-Incluye evaluador numérico conservador y persistencia interna/consulta de conclusiones.
-La creación operativa de evaluaciones, E08 → E09 y el cierre humano siguen pendientes.
+Incluye evaluación operativa conservadora, decisión humana, aprendizaje y cierre
+administrativo hasta E14. Las nuevas rondas, las fuentes instrumentales verificadas
+y la preparación productiva siguen pendientes.
 El MVP v01 completo no se declara cerrado.
 
 - [Contrato de cierre y secuencia del MVP v01](docs/MVP-v01-closure-contract.md).
@@ -22,6 +23,8 @@ El MVP v01 completo no se declara cerrado.
 - [Mediciones posteriores y revisión: MVP-05](docs/MVP-05-post-measurements.md).
 - [Trazabilidad central y pendientes](docs/MVP-v01-traceability.md).
 - [Evaluación: políticas, evaluador y persistencia, 06.1–06.3](docs/MVP-06-evaluation.md).
+- [Decisión, aprendizaje y cierre E14, 06.4–06.6](docs/MVP-06-decision-closure.md).
+- [Diseño del siguiente incremento: nuevas rondas](docs/MVP-next-rounds-design.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto
 la aplicación escucha en 127.0.0.1:8081 y mantiene apagada la consola H2. Swagger,

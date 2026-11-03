@@ -276,14 +276,14 @@ class MvpLifecycleRestartIT {
                 "MIEC_RECIPIENT_BASE_URL",recipient.base().toString(),"MIEC_RECIPIENT_API_KEY",com.miec.integration.contract.HttpRecipientFixture.API_KEY);
     }
 
-    /** Conserva efecto, E08, medición posterior, revisiones y conjunto fijo en otra JVM sin nuevos envíos. */
-    @Test @DisplayName("E08, resultados posteriores, revisiones y conjunto persisten sin duplicar efectos")
+    /** Conserva efecto, evaluación, decisión, aprendizaje y cierre E14 en otra JVM sin nuevos envíos. */
+    @Test @DisplayName("Recorrido hasta E14 persiste entre JVM sin duplicar efectos")
     void shouldPersistExecutableRunAndRecipientEffectAcrossRestart() throws Exception {
         Path jar=Path.of(java.util.Objects.requireNonNull(System.getProperty("miec.mvp.jar"))).toAbsolutePath();
         Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","execution-restart-it")),"run-").toAbsolutePath();
         String database="jdbc:h2:file:"+directory.resolve("miec").toString().replace('\\','/')+";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
         String recipientDb="jdbc:h2:file:"+directory.resolve("recipient").toString().replace('\\','/')+";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
-        String planId,cycleId,runBody,measurementBody;
+        String planId,cycleId,runBody,measurementBody,completionBody;
         try(var recipient=new com.miec.integration.contract.HttpRecipientFixture(recipientDb)) {
             try(var first=start(jar,directory,database,1,recipientEnvironment(recipient))) {
                 var plan=executablePlan(first);planId=plan.path("planId").asString();cycleId=plan.path("cycleId").asString();
@@ -295,6 +295,8 @@ class MvpLifecycleRestartIT {
                         "expectedCycleVersion",currentCycle.path("version").asLong(),"reason","revisión técnica"),"restart-approver",200);
                 assertEquals("E08_VERIFICANDO",finalized.path("cycleState").asString());
                 measurementBody=postMeasurements(first,cycleId,planId,finalized.path("runId").asString());
+                completionBody=completeCycle(first,cycleId,planId,json.readTree(measurementBody));
+                measurementBody=get(first.base(),"/api/cycles/"+cycleId+"/plans/"+planId+"/measurements").body();
                 runBody=get(first.base(),"/api/plans/"+planId+"/execution").body();
             }
         }
@@ -304,12 +306,14 @@ class MvpLifecycleRestartIT {
             try(var second=start(jar,directory,database,2,recipientEnvironment(reopened))) {
                 assertEquals(json.readTree(runBody),json.readTree(get(second.base(),"/api/plans/"+planId+"/execution").body()));
                 assertEquals(json.readTree(measurementBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/plans/"+planId+"/measurements").body()));
+                assertEquals(json.readTree(completionBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/completion").body()));
+                assertEquals("E14_FINALIZADO",json.readTree(completionBody).path("cycle").path("state").asString());
                 assertEquals("UNVERIFIED",json.readTree(measurementBody).path("measurements").get(0).path("qualityStatus").asString());
                 checkedPost(second,"/api/cycles/"+cycleId+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",0,"expectedPlanVersion",0,"reason","repetido"),"restart-author",409);
                 assertEquals(1,reopened.effects());
             }
         }
-        System.out.println("MVP-05 REINICIO: E08, medición posterior, revisiones y conjunto fijo conservados; un solo efecto HTTP.");
+        System.out.println("MVP-06 CIERRE REINICIO: E14, evaluación RS-05, decisión humana, aprendizaje y closed_at conservados; un solo efecto HTTP.");
     }
 
     /** Demuestra por HTTP el registro, revisión y cierre sin valorar el éxito del objetivo. */
@@ -331,6 +335,23 @@ class MvpLifecycleRestartIT {
                         "indicatorId",baseline.path("indicatorId").asString(),"baselineId",baseline.path("baselineId").asString(),"measurementId",post.path("measurementId").asString())),"reason","conjunto reproducible"),"restart-approver",200);
         assertEquals(2,sealed.path("reviews").size());assertFalse(sealed.path("set").isNull());
         return get(running.base(),path).body();
+    }
+
+    /** Demuestra por HTTP evaluación y cierre administrativo sin elevar la suficiencia ni saltar F01. */
+    private String completeCycle(Running running,String cycle,String plan,tools.jackson.databind.JsonNode measurements)throws Exception {
+        String root="/api/cycles/"+cycle;
+        var admitted=checkedPost(running,root+"/plans/"+plan+"/evaluations",java.util.Map.of("expectedVersion",measurements.path("cycleVersion").asLong(),
+                "setId",measurements.path("set").path("setId").asString(),"reason","evaluar conjunto"),"restart-author",201);
+        var evaluation=admitted.path("evaluation").path("report").path("result");assertEquals("INCONCLUSIVE",evaluation.path("classification").asString());
+        var decision=checkedPost(running,root+"/decisions",java.util.Map.of("expectedVersion",admitted.path("completion").path("cycle").path("version").asLong(),
+                "evaluationId",evaluation.path("id").asString(),"action","CLOSE_CYCLE","acknowledgeLimitations",true,"reason","cierre administrativo inconcluso"),"restart-approver",200);
+        var learned=checkedPost(running,root+"/learning",java.util.Map.of("expectedVersion",decision.path("cycle").path("version").asLong(),
+                "decisionId",decision.path("decision").path("decisionId").asString(),"statement","No se acreditó mejora concluyente","conditions","laboratorio",
+                "limitations","Evidencia humana y ausencia de causalidad","reason","aprender"),"restart-author",200);
+        var closed=checkedPost(running,root+"/close",java.util.Map.of("expectedVersion",learned.path("cycle").path("version").asLong(),
+                "learningId",learned.path("learning").path("learningId").asString(),"summary","Ciclo concluido sin éxito acreditado","acknowledgeLimitations",true,"reason","cerrar"),"restart-approver",200);
+        assertEquals("E14_FINALIZADO",closed.path("cycle").path("state").asString());assertFalse(closed.path("closure").path("closedAt").asString().isBlank());
+        return get(running.base(),root+"/completion").body();
     }
 
     /** Matar la JVM tras el efecto deja incertidumbre durable; reiniciar y recuperar nunca reenvían a ciegas. */
