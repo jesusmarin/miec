@@ -70,12 +70,15 @@ public class Cycle {
     }
 
     /**
-     * Determina las transiciones permitidas según MIEC-F01 v0.1.
+     * Consulta las transiciones permitidas según MIEC-F01 v0.1 sin modificar un ciclo.
+     * Permite a los servicios persistentes reutilizar la misma regla de estados.
      */
-    private boolean isValidTransition(
+    public static boolean isValidTransition(
             CycleState current,
             CycleState next) {
 
+        Objects.requireNonNull(current, "El estado actual es obligatorio");
+        Objects.requireNonNull(next, "El estado propuesto es obligatorio");
         return switch (current) {
 
             case E00_INACTIVO ->
