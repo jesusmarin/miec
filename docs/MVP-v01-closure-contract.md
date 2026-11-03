@@ -1,5 +1,9 @@
 # Contrato de cierre del MVP v01 — incremento 1
 
+Actualización MVP-06.1–06.3: [políticas, evaluador puro y guardado interno](MVP-06-evaluation.md)
+implementados; quedan creación operativa/E08 → E09, decisión y cierre (06.4–06.6).
+Las secciones originales conservan diagnóstico histórico y contrato de destino.
+
 Actualización MVP-05: [mediciones posteriores](MVP-05-post-measurements.md) incorpora
 registro E08, revisión humana separada y selección explícita inmutable. Evaluación
 productiva y decisión/aprendizaje/cierre siguen pendientes. El contenido original

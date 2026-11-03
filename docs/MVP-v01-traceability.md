@@ -13,14 +13,15 @@ la entrega nueva registra su regresión en su propia sección de resultados.
 | Coordinación y admisión | PlanExecutionApplicationService/Store, ExecutionDispatchAdmission | PlanExecutionApplicationTest; PlanDispatchAdmissionTest | [Ejecución](MVP-03-plan-execution.md), [admisión](MVP-03-send-admission.md) |
 | Finalización E08 y recuperación APPLIED | PlanRecoveryApplicationService/Store, DestinationEvidenceVerificationService | PlanRecoveryApplicationTest; PlanExecutionFinalizationTest; MvpLifecycleRestartIT | [Finalización](MVP-03-finalization-recovery.md) |
 | MVP-05: resultado, revisión y conjunto fijo | PostMeasurementWorkflow, MeasurementQueries, PostMeasurementController, V015 | PostMeasurement*Test; MvpLifecycleRestartIT | [Mediciones posteriores](MVP-05-post-measurements.md) |
+| MVP-06.1–06.3: políticas y conclusión interna | DeterministicResultEvaluator, MeasurementEvidencePolicy, ClosedSetEvaluationStore, V016 | DeterministicResultEvaluatorTest; ClosedSetEvaluationStoreTest; EvaluationApiTest; ClosedSetEvaluationRestartIT | [Evaluación](MVP-06-evaluation.md) |
 | Identidad y API segura local | MvpSecurityConfiguration, InterventionIdentity, LifecycleApiErrors | PostMeasurementApiTest y pruebas HTTP de cada incremento | [Seguridad y CI](MVP-v01-security-ci.md) |
 | Regresión remota | .github/workflows/mvp-ci.yml | clean verify y MvpLifecycleRestartIT en Actions después del push | [Seguridad y CI](MVP-v01-security-ci.md) |
 
 ## Pendientes para continuar
 
-1. P0: evaluador productivo determinista sobre conjunto fijo, política versionada,
-   comparabilidad, suficiencia EV, umbral y variación separados. No elevar evidencia
-   humana automáticamente ni deducir causalidad.
+1. P0: creación operativa de evaluación y E08 → E09 atómicos (06.4). El evaluador
+   V1 y el guardado interno están implementados; la fuente humana conserva EV-0/EV-1
+   y no acredita conclusiones causales ni EV-2/EV-3 automáticamente.
 2. P0: decisión humana, aprendizaje y cierre con F02/F01, versiones e historial.
 3. P1: continuación parcial, suspensión, aborto operativo y permisos vencidos;
    fuentes verificables de medición más allá de la atestación humana del MVP.

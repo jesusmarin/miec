@@ -36,6 +36,7 @@ import java.util.UUID;
  * @param baselineReference referencia a la línea base contra la cual comparar
  * @param criteriaVersionId versión de los criterios de evaluación aplicables
  * @param evaluatedAt       instante en que se formula la solicitud
+ * @param numericSnapshot snapshot opcional de conjunto cerrado; requerido por el evaluador numérico V1
  */
 public record ResultEvaluationRequest(
         UUID cycleId,
@@ -44,8 +45,15 @@ public record ResultEvaluationRequest(
         List<ObservedResult> observedResults,
         String baselineReference,
         String criteriaVersionId,
-        Instant evaluatedAt
+        Instant evaluatedAt,
+        ClosedSetEvaluation.Snapshot numericSnapshot
 ) {
+
+    /** Conserva compatibilidad de los contratos y consumidores históricos sin inventar datos numéricos. */
+    public ResultEvaluationRequest(UUID cycleId,UUID objectiveId,EvidenceAssessment evidenceAssessment,List<ObservedResult> observedResults,
+                                   String baselineReference,String criteriaVersionId,Instant evaluatedAt) {
+        this(cycleId,objectiveId,evidenceAssessment,observedResults,baselineReference,criteriaVersionId,evaluatedAt,null);
+    }
 
     /**
      * Constructor compacto: valida invariantes y normaliza los datos.

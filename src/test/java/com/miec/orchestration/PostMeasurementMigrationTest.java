@@ -25,7 +25,7 @@ class PostMeasurementMigrationTest {
             sql.update("INSERT INTO baseline(baseline_id,cycle_id,indicator_id,observed_value,measured_at,evidence_id) VALUES (?,?,?,12.34567,CURRENT_TIMESTAMP,?)",baseline,cycle,indicator,evidence);
             var before=sql.queryForMap("SELECT * FROM baseline WHERE baseline_id=?",baseline);
             var proof=sql.queryForMap("SELECT * FROM evidence WHERE evidence_id=?",evidence);
-            assertEquals(1,Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+            assertEquals(1,Flyway.configure().dataSource(source).target("015").load().migrate().migrationsExecuted);
             assertEquals(before,sql.queryForMap("SELECT * FROM baseline WHERE baseline_id=?",baseline));
             assertEquals(proof,sql.queryForMap("SELECT * FROM evidence WHERE evidence_id=?",evidence));
             for(String table:new String[]{"post_measurement","measurement_review","measurement_set","measurement_pair"})
