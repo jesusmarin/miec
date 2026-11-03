@@ -187,4 +187,45 @@ class MvpLifecycleRestartIT {
         }
         System.out.println("MVP-02 REINICIO VALIDADO: plan y aprobación humana conservados en otra JVM; sin ejecución de acciones.");
     }
+    /** Otra JVM conserva objetivo numérico, línea base, fechas, autor y evidencia de cierre. */
+    @Test void shouldPersistMeasuredBaselineAcrossJvmRestart() throws Exception {
+        String configured=System.getProperty("miec.mvp.jar"); assertNotNull(configured);
+        Path jar=Path.of(configured).toAbsolutePath();
+        Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","measurement-restart-it")),"run-").toAbsolutePath();
+        String database="jdbc:h2:file:"+directory.resolve("mvpdb").toString().replace('\\','/')+";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
+        String path,contextBody,cycleBody,historyBody;
+        long pid;
+        try(var first=start(jar,directory,database,1)) {
+            pid=first.process().pid();
+            var system=post(first.base(),"/api/systems","{\"name\":\"Medición reinicio\"}"); assertEquals(201,system.statusCode());
+            var cycle=post(first.base(),"/api/systems/"+json.readTree(system.body()).path("systemId").asString()+"/cycles","{}"); assertEquals(201,cycle.statusCode());
+            path="/api/cycles/"+json.readTree(cycle.body()).path("cycleId").asString();
+            assertEquals(200,post(first.base(),path+"/start","{\"expectedVersion\":0,\"reason\":\"inicio\"}").statusCode());
+            var initialized=post(first.base(),path+"/measurement/initialize", """
+                    {"expectedVersion":1,"objective":"Latencia","successCriteria":"p95 <= 100 ms","reason":"objetivo",
+                     "criteria":[{"name":"p95","unit":"ms","operator":"LTE","target":100}]}
+                    ""","restart-author"); assertEquals(200,initialized.statusCode(),initialized.body());
+            var context=json.readTree(get(first.base(),path+"/measurement","restart-author").body());
+            String indicator=context.path("objectives").get(0).path("criteria").get(0).path("indicatorId").asString();
+            var measurement=post(first.base(),path+"/measurement/baselines", """
+                    {"expectedVersion":2,"indicatorId":"%s","value":125.12345,"unit":"ms","source":"sensor",
+                     "measuredAt":"%s","reason":"línea base"}
+                    """.formatted(indicator,java.time.Instant.now().minusSeconds(5)),"restart-author");
+            assertEquals(200,measurement.statusCode(),measurement.body());
+            var closed=post(first.base(),path+"/measurement/complete","{\"expectedVersion\":3,\"reason\":\"completo\"}","restart-author");
+            assertEquals(200,closed.statusCode(),closed.body());
+            contextBody=get(first.base(),path+"/measurement","restart-author").body();
+            cycleBody=get(first.base(),path).body(); historyBody=get(first.base(),path+"/history").body();
+        }
+        awaitFileUnlock(directory.resolve("mvpdb.mv.db"));
+        try(var second=start(jar,directory,database,2)) {
+            assertNotEquals(pid,second.process().pid());
+            assertEquals(json.readTree(contextBody),json.readTree(get(second.base(),path+"/measurement","restart-approver").body()));
+            assertEquals(json.readTree(cycleBody),json.readTree(get(second.base(),path).body()));
+            assertEquals(json.readTree(historyBody),json.readTree(get(second.base(),path+"/history").body()));
+            assertEquals(409,post(second.base(),path+"/measurement/complete","{\"expectedVersion\":4,\"reason\":\"repetido\"}","restart-author").statusCode());
+        }
+        System.out.println("MVP v01 MEDICIONES: objetivo, indicadores, línea base y cierre conservados entre dos JVM.");
+    }
+
 }

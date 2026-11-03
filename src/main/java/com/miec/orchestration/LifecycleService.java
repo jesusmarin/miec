@@ -206,9 +206,9 @@ public class LifecycleService {
         if (id == null) throw new LifecycleException(BAD_REQUEST, "INVALID_ID", "El identificador es obligatorio");
     }
 
-    /** Usa el reloj de base real, después de adquirir bloqueos y no el inicio de una transacción antigua. */
+    /** Usa el reloj real tras bloquear, truncado a microsegundos para evitar redondeos futuros en TIMESTAMP(6). */
     Instant now() {
-        return Objects.requireNonNull(jdbc.queryForObject("SELECT miec_wall_clock()", (rs, row) -> rs.getTimestamp(1).toInstant()));
+        return Objects.requireNonNull(jdbc.queryForObject("SELECT miec_wall_clock()", (rs, row) -> rs.getTimestamp(1).toInstant())).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     }
 
     /** Reconstruye un sistema desde sus columnas persistidas. */

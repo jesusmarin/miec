@@ -45,7 +45,7 @@ public class MvpSecurityConfiguration {
 
     /** Protege las nuevas rutas; MVP-01 mantiene su contrato local anterior y no concede permisos de intervención. */
     @Bean SecurityFilterChain interventionSecurity(HttpSecurity http) throws Exception {
-        http.securityMatcher("/api/plans/**","/api/authorizations/**","/api/cycles/*/initialize",
+        http.securityMatcher("/api/cycles/*/measurement/**","/api/cycles/*/measurement","/swagger-ui/**","/swagger-ui.html","/v3/api-docs.yaml","/v3/api-docs/**","/api/plans/**","/api/authorizations/**","/api/cycles/*/initialize",
                         "/api/cycles/*/observations","/api/cycles/*/diagnosis","/api/cycles/*/plans")
                 .authorizeHttpRequests(rules->rules.anyRequest().authenticated())
                 .httpBasic(basic->basic.authenticationEntryPoint((request,response,failure)->error(response,401,"AUTHENTICATION_REQUIRED")))
