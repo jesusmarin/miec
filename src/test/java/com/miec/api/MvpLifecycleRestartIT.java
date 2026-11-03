@@ -1,6 +1,7 @@
 package com.miec.api;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 import tools.jackson.databind.json.JsonMapper;
 import java.io.IOException;
 import java.net.*;
@@ -13,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Prueba explícita del JAR: crea/inicia por HTTP y comprueba persistencia en una segunda JVM. */
+@DisplayName("MVP v01 — persistencia y recuperación del JAR entre JVM")
 class MvpLifecycleRestartIT {
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
     private final JsonMapper json = JsonMapper.builder().build();
@@ -118,7 +120,8 @@ class MvpLifecycleRestartIT {
     }
 
     /** La segunda JVM conserva IDs, fechas, versión e historial y rechaza reiniciar otra vez. */
-    @Test void shouldPersistLifecycleAcrossJvmRestart() throws Exception {
+    @Test @DisplayName("Sistema, ciclo e historial persisten entre JVM")
+    void shouldPersistLifecycleAcrossJvmRestart() throws Exception {
         String configured = System.getProperty("miec.mvp.jar");
         assertNotNull(configured, "Defina -Dmiec.mvp.jar=<jar> y ejecute -Dtest=MvpLifecycleRestartIT");
         Path jar = Path.of(configured).toAbsolutePath();
@@ -154,7 +157,8 @@ class MvpLifecycleRestartIT {
     }
 
     /** Otra JVM conserva plan, autorización activa, decisión humana y seis transiciones del recorrido. */
-    @Test void shouldPersistHumanAuthorizationAcrossJvmRestart() throws Exception {
+    @Test @DisplayName("Plan y autorización humana persisten entre JVM")
+    void shouldPersistHumanAuthorizationAcrossJvmRestart() throws Exception {
         String configured=System.getProperty("miec.mvp.jar"); assertNotNull(configured);
         Path jar=Path.of(configured).toAbsolutePath(); assertTrue(Files.isRegularFile(jar));
         Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","mvp02-restart-it")),"run-").toAbsolutePath();
@@ -198,7 +202,8 @@ class MvpLifecycleRestartIT {
         System.out.println("MVP-02 REINICIO VALIDADO: plan y aprobación humana conservados en otra JVM; sin ejecución de acciones.");
     }
     /** Otra JVM conserva objetivo numérico, línea base, fechas, autor y evidencia de cierre. */
-    @Test void shouldPersistMeasuredBaselineAcrossJvmRestart() throws Exception {
+    @Test @DisplayName("Objetivo, criterios y línea base persisten entre JVM")
+    void shouldPersistMeasuredBaselineAcrossJvmRestart() throws Exception {
         String configured=System.getProperty("miec.mvp.jar"); assertNotNull(configured);
         Path jar=Path.of(configured).toAbsolutePath();
         Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","measurement-restart-it")),"run-").toAbsolutePath();
@@ -250,11 +255,15 @@ class MvpLifecycleRestartIT {
         var cycle=checkedPost(running,"/api/systems/"+system.path("systemId").asString()+"/cycles",java.util.Map.of(),"restart-author",201);
         String path="/api/cycles/"+cycle.path("cycleId").asString();
         checkedPost(running,path+"/start",java.util.Map.of("expectedVersion",0,"reason","inicio"),"restart-author",200);
-        var objective=checkedPost(running,path+"/initialize",java.util.Map.of("expectedVersion",1,"objective","objetivo","successCriteria","criterio","reason","r"),"restart-author",200);
-        var observation=checkedPost(running,path+"/observations",java.util.Map.of("expectedVersion",2,"description","dato","reason","r"),"restart-author",200);
-        checkedPost(running,path+"/diagnosis",java.util.Map.of("expectedVersion",3,"evidenceId",observation.path("resourceId").asString(),"summary","diagnóstico","reason","r"),"restart-author",200);
+        var objective=checkedPost(running,path+"/measurement/initialize",java.util.Map.of("expectedVersion",1,"objective","objetivo","successCriteria","latencia <= 100 ms","reason","r",
+                "criteria",java.util.List.of(java.util.Map.of("name","latencia","unit","ms","operator","LTE","target",100))),"restart-author",200);
+        var measured=json.readTree(get(running.base(),path+"/measurement").body());
+        checkedPost(running,path+"/measurement/baselines",java.util.Map.of("expectedVersion",2,"indicatorId",measured.path("objectives").get(0).path("criteria").get(0).path("indicatorId").asString(),
+                "value",150,"unit","ms","source","laboratorio","measuredAt",java.time.Instant.now().minusSeconds(2).truncatedTo(java.time.temporal.ChronoUnit.MICROS).toString(),"reason","línea base"),"restart-author",200);
+        var observation=checkedPost(running,path+"/measurement/complete",java.util.Map.of("expectedVersion",3,"reason","cerrar base"),"restart-author",200);
+        var diagnosis=checkedPost(running,path+"/diagnosis",java.util.Map.of("expectedVersion",4,"evidenceId",observation.path("resourceId").asString(),"summary","diagnóstico","reason","r"),"restart-author",200);
         var spec=java.util.Map.of("adapterId","http-recipient-v1","adapterVersion","1","destinationId","restart-destination","mediaType","application/json","body","{\"change\":1}");
-        var plan=checkedPost(running,path+"/plans",java.util.Map.of("expectedVersion",4,"objectiveId",objective.path("resourceId").asString(),"expectedOutcomes","resultado","rollbackStrategy","restaurar",
+        var plan=checkedPost(running,path+"/plans",java.util.Map.of("expectedVersion",diagnosis.path("cycle").path("version").asLong(),"objectiveId",objective.path("resourceId").asString(),"expectedOutcomes","resultado","rollbackStrategy","restaurar",
                 "actions",java.util.List.of(java.util.Map.of("actionType","PROCESS_EXECUTION","description","acción HTTP","execution",spec))),"restart-author",201);
         var request=checkedPost(running,"/api/plans/"+plan.path("planId").asString()+"/authorization-requests",java.util.Map.of("expectedPlanVersion",0,"actionId",plan.path("actions").get(0).path("actionId").asString(),"validForSeconds",600),"restart-author",201);
         checkedPost(running,"/api/authorizations/"+request.path("authorizationId").asString()+"/approve",java.util.Map.of("expectedVersion",0,"reason","aprobar"),"restart-approver",200);
@@ -267,13 +276,14 @@ class MvpLifecycleRestartIT {
                 "MIEC_RECIPIENT_BASE_URL",recipient.base().toString(),"MIEC_RECIPIENT_API_KEY",com.miec.integration.contract.HttpRecipientFixture.API_KEY);
     }
 
-    /** MIEC y el ledger del destinatario se reabren conservando efecto y resultado sin nuevos envíos. */
-    @Test void shouldPersistExecutableRunAndRecipientEffectAcrossRestart() throws Exception {
+    /** Conserva efecto, E08, medición posterior, revisiones y conjunto fijo en otra JVM sin nuevos envíos. */
+    @Test @DisplayName("E08, resultados posteriores, revisiones y conjunto persisten sin duplicar efectos")
+    void shouldPersistExecutableRunAndRecipientEffectAcrossRestart() throws Exception {
         Path jar=Path.of(java.util.Objects.requireNonNull(System.getProperty("miec.mvp.jar"))).toAbsolutePath();
         Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","execution-restart-it")),"run-").toAbsolutePath();
         String database="jdbc:h2:file:"+directory.resolve("miec").toString().replace('\\','/')+";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
         String recipientDb="jdbc:h2:file:"+directory.resolve("recipient").toString().replace('\\','/')+";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
-        String planId,cycleId,runBody;
+        String planId,cycleId,runBody,measurementBody;
         try(var recipient=new com.miec.integration.contract.HttpRecipientFixture(recipientDb)) {
             try(var first=start(jar,directory,database,1,recipientEnvironment(recipient))) {
                 var plan=executablePlan(first);planId=plan.path("planId").asString();cycleId=plan.path("cycleId").asString();
@@ -284,6 +294,7 @@ class MvpLifecycleRestartIT {
                 var finalized=checkedPost(first,"/api/plans/"+planId+"/execution/finish",java.util.Map.of("expectedVersion",response.path("version").asLong(),
                         "expectedCycleVersion",currentCycle.path("version").asLong(),"reason","revisión técnica"),"restart-approver",200);
                 assertEquals("E08_VERIFICANDO",finalized.path("cycleState").asString());
+                measurementBody=postMeasurements(first,cycleId,planId,finalized.path("runId").asString());
                 runBody=get(first.base(),"/api/plans/"+planId+"/execution").body();
             }
         }
@@ -292,15 +303,39 @@ class MvpLifecycleRestartIT {
             assertEquals(1,reopened.effects());
             try(var second=start(jar,directory,database,2,recipientEnvironment(reopened))) {
                 assertEquals(json.readTree(runBody),json.readTree(get(second.base(),"/api/plans/"+planId+"/execution").body()));
+                assertEquals(json.readTree(measurementBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/plans/"+planId+"/measurements").body()));
+                assertEquals("UNVERIFIED",json.readTree(measurementBody).path("measurements").get(0).path("qualityStatus").asString());
                 checkedPost(second,"/api/cycles/"+cycleId+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",0,"expectedPlanVersion",0,"reason","repetido"),"restart-author",409);
                 assertEquals(1,reopened.effects());
             }
         }
-        System.out.println("MVP-03 REINICIO: E08, coordinación IR-009 y efecto HTTP conservados; ledger del destinatario reabierto sin duplicación.");
+        System.out.println("MVP-05 REINICIO: E08, medición posterior, revisiones y conjunto fijo conservados; un solo efecto HTTP.");
+    }
+
+    /** Demuestra por HTTP el registro, revisión y cierre sin valorar el éxito del objetivo. */
+    private String postMeasurements(Running running,String cycle,String plan,String run) throws Exception {
+        String cyclePath="/api/cycles/"+cycle;String path=cyclePath+"/plans/"+plan+"/measurements";
+        var context=json.readTree(get(running.base(),cyclePath+"/measurement").body());var baseline=context.path("baselines").get(0);
+        var current=json.readTree(get(running.base(),cyclePath).body());
+        var posts=checkedPost(running,path,java.util.Map.of("runId",run,"method","laboratory-v1","measurement",java.util.Map.of(
+                "expectedVersion",current.path("version").asLong(),"indicatorId",baseline.path("indicatorId").asString(),"value",90,"unit","ms","source","informe posterior",
+                "measuredAt",java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS).toString(),"reason","resultado")),"restart-author",200);
+        var post=posts.path("measurements").get(0);
+        for(String proof:java.util.List.of(baseline.path("evidenceId").asString(),post.path("evidenceId").asString()))
+            posts=checkedPost(running,path+"/reviews",java.util.Map.of("expectedVersion",posts.path("cycleVersion").asLong(),"runId",run,"evidenceId",proof,
+                    "verdict","ACCEPTED_WITH_LIMITATIONS","method","laboratory-v1","procedureReference","acta","limitations","Revisión humana limitada","reason","revisión"),"restart-approver",200);
+        var baselineAt=java.time.Instant.parse(baseline.path("measuredAt").asString());
+        var sealed=checkedPost(running,path+"/seal",java.util.Map.of("expectedVersion",posts.path("cycleVersion").asLong(),"runId",run,"method","laboratory-v1",
+                "baselineFrom",baselineAt.minusSeconds(1).toString(),"baselineTo",baselineAt.toString(),"postFrom",post.path("measuredAt").asString(),
+                "postTo",java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS).toString(),"pairs",java.util.List.of(java.util.Map.of(
+                        "indicatorId",baseline.path("indicatorId").asString(),"baselineId",baseline.path("baselineId").asString(),"measurementId",post.path("measurementId").asString())),"reason","conjunto reproducible"),"restart-approver",200);
+        assertEquals(2,sealed.path("reviews").size());assertFalse(sealed.path("set").isNull());
+        return get(running.base(),path).body();
     }
 
     /** Matar la JVM tras el efecto deja incertidumbre durable; reiniciar y recuperar nunca reenvían a ciegas. */
-    @Test void shouldBlockReplayAfterJvmDiesFollowingRecipientCommit() throws Exception {
+    @Test @DisplayName("Caída tras commit remoto se reconcilia sin reenviar el efecto")
+    void shouldBlockReplayAfterJvmDiesFollowingRecipientCommit() throws Exception {
         Path jar=Path.of(java.util.Objects.requireNonNull(System.getProperty("miec.mvp.jar"))).toAbsolutePath();
         Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","execution-crash-it")),"run-").toAbsolutePath();
         String database="jdbc:h2:file:"+directory.resolve("miec").toString().replace('\\','/')+";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";

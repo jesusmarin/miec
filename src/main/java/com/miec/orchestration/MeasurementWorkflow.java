@@ -40,10 +40,8 @@ class MeasurementWorkflow {
     public InterventionViews.Preparation measure(UUID cycleId,Measure command,String actor) {
         store.lifecycle.validate(command);
         var cycle=store.lock(cycleId); store.expect(cycle,command.expectedVersion(),"E02_OBSERVANDO");
-        var criteria=context(cycleId).objectives().stream().flatMap(o->o.criteria().stream()).toList();
-        var indicator=criteria.stream().filter(i->i.indicatorId().equals(command.indicatorId())).findFirst()
-                .orElseThrow(()->fail(BAD_REQUEST,"INVALID_INDICATOR","El indicador no pertenece al ciclo medible"));
-        if(!indicator.unit().equals(command.unit().trim())) throw fail(BAD_REQUEST,"UNIT_MISMATCH","La unidad debe coincidir con el indicador");
+        var indicator=queries.indicator(cycleId,command.indicatorId());
+        MeasurementQueries.requireUnit(indicator,command.unit());
         var now=store.lifecycle.now();
         if(command.measuredAt().isAfter(now)) throw fail(BAD_REQUEST,"FUTURE_MEASUREMENT","La fecha del hecho no puede superar la recepción");
         UUID baseline=UUID.randomUUID(),evidence=UUID.randomUUID();
