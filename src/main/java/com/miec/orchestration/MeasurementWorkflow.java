@@ -14,10 +14,11 @@ import static com.miec.orchestration.LifecycleException.Kind.*;
 @Service
 class MeasurementWorkflow {
     private final InterventionSupport store;
+    private final RoundScope scope;
     private final InterventionWorkflow intervention;
     private final MeasurementQueries queries;
     /** Comparte coordinación y validación con el ciclo existente. */
-    MeasurementWorkflow(InterventionSupport store,InterventionWorkflow intervention,MeasurementQueries queries) { this.store=store; this.intervention=intervention; this.queries=queries; }
+    MeasurementWorkflow(InterventionSupport store,InterventionWorkflow intervention,MeasurementQueries queries,RoundScope scope) { this.scope=scope;this.store=store; this.intervention=intervention; this.queries=queries; }
     /** Crea objetivo e indicadores con E01 a E02 en la misma transacción. */
     @Transactional(timeout=10)
     public InterventionViews.Preparation initialize(UUID cycleId,Initialize command,String actor) {
@@ -43,6 +44,7 @@ class MeasurementWorkflow {
         var indicator=queries.indicator(cycleId,command.indicatorId());
         MeasurementQueries.requireUnit(indicator,command.unit());
         var now=store.lifecycle.now();
+        scope.requireNewObservation(cycleId,command.measuredAt());
         if(command.measuredAt().isAfter(now)) throw fail(BAD_REQUEST,"FUTURE_MEASUREMENT","La fecha del hecho no puede superar la recepción");
         UUID baseline=UUID.randomUUID(),evidence=UUID.randomUUID();
         store.jdbc.update("""
@@ -53,6 +55,7 @@ class MeasurementWorkflow {
                 INSERT INTO baseline(baseline_id,cycle_id,indicator_id,observed_value,quality_status,measured_at,version_id,created_at,source_reference,recorded_by,unit,evidence_id)
                 VALUES (?,?,?,?,'UNVERIFIED',?,'MVP-MEASURE-01',?,?,?,?,?)
                 """,baseline,cycleId,command.indicatorId(),command.value(),Timestamp.from(command.measuredAt()),Timestamp.from(now),command.source().trim(),actor,indicator.unit(),evidence);
+        scope.baseline(cycleId,baseline,command.indicatorId());
         store.change(cycle,cycle.state(),EventType.OBSERVATION_RECORDED,actor,command.reason().trim(),"baseline:"+baseline);
         return new InterventionViews.Preparation(store.lifecycle.getCycle(cycleId),baseline);
     }
@@ -72,6 +75,7 @@ class MeasurementWorkflow {
                 INSERT INTO evidence(evidence_id,cycle_id,source_type,source_reference,description,captured_at,provenance,quality_status,limitations,created_at)
                 VALUES (?,?,'HUMAN_REPORT','MVP-MEASURE-CLOSURE',?,?,?,'UNVERIFIED','Conjunto de reportes manuales; sin evaluación automática',?)
                 """,evidence,cycleId,"baseline-set:"+references,now,actor,now);
+        scope.observation(cycleId,evidence);
         store.change(cycle,"E03_DIAGNOSTICANDO",EventType.OBSERVATION_RECORDED,actor,command.reason().trim(),"evidence:"+evidence);
         return new InterventionViews.Preparation(store.lifecycle.getCycle(cycleId),evidence);
     }

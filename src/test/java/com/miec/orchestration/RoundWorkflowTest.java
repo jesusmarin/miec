@@ -27,6 +27,8 @@ class RoundWorkflowTest {
     @Autowired RoundWorkflow rounds;
     @Autowired InterventionPlans plans;
     @Autowired PlanActivityQuery activity;
+    @Autowired RoundScope scope;
+    @Autowired MeasurementQueries queries;
     @Autowired JdbcTemplate jdbc;
     @Autowired com.miec.action.ExecutionAttemptService attempts;
     @Autowired com.miec.action.ExecutionEvidenceService evidence;
@@ -73,6 +75,7 @@ class RoundWorkflowTest {
         var closed=completion.close(cycle,new Close(v.cycle().version(),v.learning().learningId(),"cierre",true,"cerrar"),"approver");
         assertThrows(LifecycleException.class,()->rounds.register(cycle,new RegisterInitial(closed.cycle().version(),"reabrir"),"author"));
         assertTrue(rounds.view(cycle).rounds().isEmpty());
+        assertTrue(rounds.view(cycle).activePlanIds().isEmpty());
     }
     /** Dos aprobadores sobre la misma versión producen una sola acta. */
     @Test @DisplayName("Concurrencia confirma una única conclusión y una versión")
@@ -149,5 +152,26 @@ class RoundWorkflowTest {
         completion.close(cycle,new Close(concluded.cycle().version(),v.learning().learningId(),"cerrar",true,"cierre administrativo"),"approver");
         var closed=rounds.view(cycle);assertEquals("E14_FINALIZADO",closed.cycle().state());assertEquals("CONCLUDED",closed.rounds().getFirst().state());
         assertEquals(2,closed.rounds().getFirst().version());assertTrue(closed.activePlanIds().isEmpty());
+    }
+    /** Las fuentes sin asignación no se incorporan implícitamente a la ronda registrada. */
+    @Test @DisplayName("La ronda solo consulta sus muestras explícitamente vinculadas")
+    void isolatesUnassignedBaselines(){
+        var c=registered();var r=c.rounds().getFirst();UUID cycle=c.cycle().cycleId();
+        var before=queries.context(cycle,r.roundId()).baselines();UUID original=before.getFirst().baselineId();
+        jdbc.update("""
+            INSERT INTO baseline(baseline_id,cycle_id,indicator_id,observed_value,quality_status,measured_at,version_id,created_at,source_reference,recorded_by,unit)
+            SELECT ?,cycle_id,indicator_id,999,quality_status,measured_at,version_id,created_at,source_reference,recorded_by,unit FROM baseline WHERE baseline_id=?
+            """,UUID.randomUUID(),original);
+        assertEquals(before,queries.context(cycle,r.roundId()).baselines());assertEquals(before,queries.context(cycle).baselines());
+        assertEquals(r.roundId(),scope.forPlan(r.planId()));
+        assertEquals("OBSERVATION_ROUND_MISMATCH",assertThrows(LifecycleException.class,()->scope.requireObservation(cycle,UUID.randomUUID())).code());
+    }
+    /** Las consultas y claves compuestas rechazan contextos ajenos. */
+    @Test @DisplayName("Rechaza referencias de ronda y diagnóstico de otro ciclo")
+    void rejectsForeignRoundInputs(){
+        var a=registered();var b=registered();var ra=a.rounds().getFirst();var rb=b.rounds().getFirst();
+        assertEquals("ROUND_NOT_FOUND",assertThrows(LifecycleException.class,()->queries.context(a.cycle().cycleId(),rb.roundId())).code());
+        UUID diagnosis=plans.get(ra.planId(),false).diagnosisId();
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("UPDATE round_diagnosis SET round_id=? WHERE diagnosis_id=?",rb.roundId(),diagnosis));
     }
 }

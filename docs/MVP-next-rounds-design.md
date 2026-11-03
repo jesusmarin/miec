@@ -1,5 +1,9 @@
 # Paso 8 — diseño de nuevas rondas
 
+Actualización de implementación: [MVP-07.4–07.8](MVP-07-continuity.md) desarrolla
+aislamiento, continuidad, permisos y conclusiones por ronda. El diagnóstico
+siguiente es el diseño original, no la lista actual de pendientes.
+
 Actualización MVP-07: el contrato, la persistencia inicial y la conclusión operativa
 se implementan en [07.1–07.3](MVP-07-rounds.md). La continuidad y las rondas
 sucesivas descritas aquí siguen pendientes. La migración V018 no asigna históricos:

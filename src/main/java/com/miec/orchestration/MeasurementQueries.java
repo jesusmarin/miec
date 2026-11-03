@@ -10,21 +10,26 @@ import static com.miec.orchestration.MeasurementContracts.*;
 @Service
 class MeasurementQueries {
     private final InterventionSupport store;
+    private final RoundScope scope;
     /** Recibe consultas y reloj compartidos del ciclo. */
-    MeasurementQueries(InterventionSupport store) { this.store=store; }
+    MeasurementQueries(InterventionSupport store,RoundScope scope) { this.store=store;this.scope=scope; }
     /** Consulta coherente sin requerir plan ni modificar el ciclo. */
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
-    public Context context(UUID cycleId) {
+    public Context context(UUID cycleId) {return context(cycleId,scope.current(cycleId));}
+    /** Consulta una ronda concreta; null representa historia sin asignacion explicita. */
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
+    public Context context(UUID cycleId,UUID round) {
+        if(round!=null)scope.requireRound(cycleId,round);
         store.lifecycle.getCycle(cycleId);
         var objectives=store.jdbc.query("""
                 SELECT o.* FROM objective o JOIN cycle_objective co ON co.objective_id=o.objective_id
                 WHERE co.cycle_id=? ORDER BY o.objective_id
                 """,(rs,row)->new Objective(rs.getObject("objective_id",UUID.class),rs.getString("name"),rs.getString("success_criteria"),
                 indicators(rs.getObject("objective_id",UUID.class))),cycleId);
-        var baselines=store.jdbc.query("SELECT * FROM baseline WHERE cycle_id=? ORDER BY created_at,baseline_id",(rs,row)->new Baseline(
+        var baselines=store.jdbc.query("SELECT * FROM baseline b WHERE cycle_id=? "+(round==null?"":"AND EXISTS(SELECT 1 FROM round_baseline r WHERE r.baseline_id=b.baseline_id AND r.round_id=?) ")+"ORDER BY created_at,baseline_id",(rs,row)->new Baseline(
                 rs.getObject("baseline_id",UUID.class),rs.getObject("indicator_id",UUID.class),rs.getBigDecimal("observed_value"),
                 rs.getString("unit"),rs.getString("source_reference"),rs.getTimestamp("measured_at").toInstant(),rs.getTimestamp("created_at").toInstant(),
-                rs.getString("recorded_by"),rs.getString("quality_status"),rs.getObject("evidence_id",UUID.class)),cycleId);
+                rs.getString("recorded_by"),rs.getString("quality_status"),rs.getObject("evidence_id",UUID.class)),round==null?new Object[]{cycleId}:new Object[]{cycleId,round});
         return new Context(cycleId,objectives.stream().anyMatch(o->!o.criteria().isEmpty())?"MEASURABLE":"LEGACY_UNSTRUCTURED",List.copyOf(objectives),List.copyOf(baselines));
     }
     /** Recupera únicamente los criterios estructurados sin reinterpretar indicadores históricos. */
