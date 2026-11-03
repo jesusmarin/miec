@@ -14,7 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Traduce rechazos del MVP y oculta SQL, payloads y trazas en las respuestas HTTP. */
-@RestControllerAdvice(assignableTypes=LifecycleController.class)
+@RestControllerAdvice(assignableTypes={LifecycleController.class,InterventionController.class})
 public class LifecycleApiErrors {
     private static final Logger LOG = LoggerFactory.getLogger(LifecycleApiErrors.class);
 
@@ -31,6 +31,8 @@ public class LifecycleApiErrors {
             case BAD_REQUEST -> 400;
             case NOT_FOUND -> 404;
             case CONFLICT -> 409;
+            case UNAUTHORIZED -> 401;
+            case FORBIDDEN -> 403;
         };
         return ResponseEntity.status(status).body(new ApiError(failure.code(), failure.getMessage(), Map.of()));
     }

@@ -169,7 +169,7 @@ public class LifecycleService {
     }
 
     /** Bloquea el sistema antes de sus ciclos; un sistema inactivo no admite comandos nuevos. */
-    private void lockActiveSystem(UUID systemId) {
+    void lockActiveSystem(UUID systemId) {
         var systems = jdbc.query("SELECT status FROM system_objective WHERE system_id=? FOR UPDATE",
                 (rs, row) -> rs.getString(1), systemId);
         if (systems.isEmpty()) throw new LifecycleException(NOT_FOUND, "SYSTEM_NOT_FOUND", "El sistema no existe");
@@ -177,7 +177,7 @@ public class LifecycleService {
     }
 
     /** Registra procedencia y motivo sin utilizar payload_reference como texto libre. */
-    private UUID event(UUID cycleId, EventType type, String actor, String reason, Instant time) {
+    UUID event(UUID cycleId, EventType type, String actor, String reason, Instant time) {
         UUID eventId = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO cycle_event(event_id,cycle_id,event_type,actor_id,occurred_at,recorded_at,created_at,reason)
@@ -187,14 +187,14 @@ public class LifecycleService {
     }
 
     /** Valida también invocaciones internas que no pasan por @Valid en un controlador. */
-    private void validate(Object command) {
+    void validate(Object command) {
         if (command == null || !validator.validate(command).isEmpty()) {
             throw new LifecycleException(BAD_REQUEST, "VALIDATION_ERROR", "El comando contiene campos inválidos");
         }
     }
 
     /** Exige una identidad declarada de auditoría, sin confundirla con autenticación. */
-    private static String actor(String value) {
+    static String actor(String value) {
         if (value == null || value.isBlank() || value.trim().length() > 255) {
             throw new LifecycleException(BAD_REQUEST, "INVALID_ACTOR", "X-MIEC-Actor es obligatorio y admite hasta 255 caracteres");
         }
@@ -207,7 +207,7 @@ public class LifecycleService {
     }
 
     /** Usa el reloj de base real, después de adquirir bloqueos y no el inicio de una transacción antigua. */
-    private Instant now() {
+    Instant now() {
         return Objects.requireNonNull(jdbc.queryForObject("SELECT miec_wall_clock()", (rs, row) -> rs.getTimestamp(1).toInstant()));
     }
 
@@ -219,7 +219,7 @@ public class LifecycleService {
     }
 
     /** Reconstruye el estado observable de un ciclo sin cambiarlo. */
-    private CycleView cycle(ResultSet rs, int row) throws SQLException {
+    CycleView cycle(ResultSet rs, int row) throws SQLException {
         var started = rs.getTimestamp("started_at");
         return new CycleView(rs.getObject("cycle_id", UUID.class), rs.getObject("system_id", UUID.class),
                 rs.getObject("cycle_number", Integer.class), rs.getString("state"), rs.getString("autonomy_level"),

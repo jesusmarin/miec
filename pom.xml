@@ -30,6 +30,10 @@
 		<java.version>21</java.version>
 	</properties>
 	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
 		<!-- Contrato compartido utilizado únicamente por los adaptadores experimentales de test. -->
 		<dependency>
 			<groupId>com.miec</groupId>

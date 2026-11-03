@@ -20,7 +20,7 @@ class LifecycleMigrationTest {
             jdbc.update("INSERT INTO cycle(cycle_id,system_id) VALUES (?,?)", cycle, system);
             jdbc.update("INSERT INTO cycle_event(event_id,cycle_id,event_type,occurred_at) VALUES (?,?,'CYCLE_CREATED',CURRENT_TIMESTAMP)", event, cycle);
             var before = jdbc.queryForMap("SELECT * FROM cycle_event WHERE event_id=?", event);
-            assertEquals(1, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+            assertEquals(1, Flyway.configure().dataSource(source).target("010").load().migrate().migrationsExecuted);
             var after = jdbc.queryForMap("SELECT * FROM cycle_event WHERE event_id=?", event);
             before.forEach((key, value) -> assertEquals(value, after.get(key)));
             assertNull(after.get("REASON"));

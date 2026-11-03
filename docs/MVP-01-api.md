@@ -123,3 +123,7 @@ Logs locales ignorados por Git: review-mvp01-step1.log a review-mvp01-step5.log,
 review-mvp01-regression.log y review-mvp01-restart.log. Los seis pasos de este
 incremento están completados. El siguiente incremento funcional es gestionar
 planes y autorización humana mediante la capa de aplicación y sus APIs.
+
+Actualización: ese incremento ya está implementado y validado en
+[MVP-02-intervention.md](MVP-02-intervention.md). Las nuevas rutas tienen
+autenticación y roles; las rutas locales originales de MVP-01 conservan su contrato.
