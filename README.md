@@ -4,8 +4,9 @@ Aplicación Java 21 / Spring Boot para ciclos de mejora trazables. Incluye siste
 ciclos, objetivos medibles, líneas base, diagnóstico, planes y aprobación humana.
 El núcleo IR-009 gestiona intentos e idempotencia y está conectado al ciclo preparado
 mediante coordinación durable y APIs de ejecución. Incluye finalización técnica
-hacia E08 y reconciliación remota autorizada de efectos aplicados. La medición
-posterior, evaluación y cierre humano aún están pendientes.
+hacia E08 y reconciliación remota autorizada de efectos aplicados. Registra mediciones
+posteriores, revisiones humanas separadas y conjuntos fijos de comparación.
+La evaluación productiva y el cierre humano aún están pendientes.
 El MVP v01 completo no se declara cerrado.
 
 - [Contrato de cierre y secuencia del MVP v01](docs/MVP-v01-closure-contract.md).
@@ -17,6 +18,8 @@ El MVP v01 completo no se declara cerrado.
 - [Ejecución del plan: 3.1, 3.2 y 3.3](docs/MVP-03-plan-execution.md).
 - [Admisión final del envío e incidentes](docs/MVP-03-send-admission.md).
 - [Finalización y recuperación: pasos 5–8](docs/MVP-03-finalization-recovery.md).
+- [Mediciones posteriores y revisión: MVP-05](docs/MVP-05-post-measurements.md).
+- [Trazabilidad central y pendientes](docs/MVP-v01-traceability.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto
 la aplicación escucha en 127.0.0.1:8081 y mantiene apagada la consola H2. Swagger,

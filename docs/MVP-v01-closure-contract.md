@@ -1,5 +1,10 @@
 # Contrato de cierre del MVP v01 — incremento 1
 
+Actualización MVP-05: [mediciones posteriores](MVP-05-post-measurements.md) incorpora
+registro E08, revisión humana separada y selección explícita inmutable. Evaluación
+productiva y decisión/aprendizaje/cierre siguen pendientes. El contenido original
+de diagnóstico conserva contexto histórico, no debe leerse como estado actual.
+
 Estado actualizado: [finalización técnica y recuperación](MVP-03-finalization-recovery.md)
 implementan E07/E13 → E08 y consulta/reconciliación APPLIED autorizada. No incorporan
 continuación parcial desde E13, NO_EFFECT por HTTP ni suspensión/aborto operativo.

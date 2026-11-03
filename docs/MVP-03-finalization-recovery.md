@@ -1,5 +1,9 @@
 # MVP-03 — pasos 5–8: finalización y recuperación verificable
 
+Actualización posterior: [MVP-05](MVP-05-post-measurements.md) añade mediciones
+posteriores, revisiones humanas y conjuntos fijos en E08. Esta guía conserva el
+alcance y los resultados históricos de finalización/recuperación.
+
 Continúa los [pasos 1–4](MVP-03-send-admission.md). Esta entrega completa la
 finalización técnica hacia E08. No declara terminado el MVP v01: medición posterior,
 evaluación, decisión y aprendizaje conservan sus incrementos del contrato de cierre.

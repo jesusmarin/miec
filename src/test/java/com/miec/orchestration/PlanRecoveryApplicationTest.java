@@ -92,7 +92,12 @@ class PlanRecoveryApplicationTest {
     @Test void shouldRevalidatePermissionAfterNetwork() {
         for(boolean revoke:List.of(false,true)) {
             var run=lost(1);var permission=permission(run);
-            adapter.duringLookup=()->jdbc.update(revoke?"UPDATE authorizations SET status='REVOKED',revoked_at=CURRENT_TIMESTAMP WHERE authorization_id=?":"UPDATE authorizations SET expires_at=CURRENT_TIMESTAMP WHERE authorization_id=?",permission);
+            adapter.duringLookup=()-> {
+                // La prueba exige vencimiento inequívoco, no una frontera dependiente
+                // del redondeo de CURRENT_TIMESTAMP frente al reloj de vigencia.
+                var expired=jdbc.queryForObject("SELECT miec_wall_clock()",(rs,row)->rs.getTimestamp(1).toInstant()).minusSeconds(1);
+                assertEquals(1,jdbc.update(revoke?"UPDATE authorizations SET status='REVOKED',revoked_at=? WHERE authorization_id=?":"UPDATE authorizations SET expires_at=? WHERE authorization_id=?",Timestamp.from(expired),permission));
+            };
             assertThrows(LifecycleException.class,()->recovery.reconcile(run.planId(),command(run,permission)));
             assertTrue(evidence.findByAttempt(run.steps().getFirst().executionId()).stream().noneMatch(e->e.source()==ExecutionEvidenceService.Source.DESTINATION_VERIFIED));assertTrue(decisions.find(run.steps().getFirst().executionId()).isEmpty());
             adapter.duringLookup=()->{};authenticate("AUTHOR");
