@@ -19,6 +19,7 @@ import static com.miec.orchestration.LifecycleException.Kind.*;
 /** Flujo interno; solo la fachada autenticada lo expone fuera del paquete de aplicación. */
 @Service
 class InterventionWorkflow {
+    private final PlanActivityQuery planActivity;
     private final InterventionSupport store;
     private final InterventionPlans plans;
     private final InterventionAuthorizations authorizations;
@@ -27,7 +28,8 @@ class InterventionWorkflow {
     private final com.miec.execution.ExecutableActionCatalog executables;
 
     /** Recibe coordinación transaccional compartida con el ciclo. */
-    InterventionWorkflow(InterventionSupport store,InterventionPlans plans,InterventionAuthorizations authorizations,AuthorizationValidityPolicy validity,MeasurementQueries measurements,com.miec.execution.ExecutableActionCatalog executables) {
+    InterventionWorkflow(InterventionSupport store,InterventionPlans plans,InterventionAuthorizations authorizations,AuthorizationValidityPolicy validity,MeasurementQueries measurements,com.miec.execution.ExecutableActionCatalog executables,PlanActivityQuery planActivity) {
+        this.planActivity=planActivity;
         this.store=store; this.plans=plans; this.authorizations=authorizations; this.validity=validity; this.measurements=measurements; this.executables=executables;
     }
 
@@ -87,7 +89,8 @@ class InterventionWorkflow {
         if(store.jdbc.queryForObject("SELECT COUNT(*) FROM cycle_objective WHERE cycle_id=? AND objective_id=?",Integer.class,cycleId,command.objectiveId())!=1) {
             throw fail(BAD_REQUEST,"INVALID_OBJECTIVE","El objetivo no pertenece al ciclo");
         }
-        if(store.jdbc.queryForObject("SELECT COUNT(*) FROM intervention_plan WHERE cycle_id=? AND status IN ('PROPOSED','AWAITING_AUTHORIZATION','APPROVED')",Integer.class,cycleId)>0) {
+        planActivity.requireProposalRound(cycleId);
+        if(!planActivity.active(cycleId).isEmpty()) {
             throw fail(CONFLICT,"ACTIVE_PLAN_EXISTS","El ciclo ya tiene un plan activo");
         }
         var diagnoses=store.jdbc.query("SELECT diagnosis_id FROM cycle_diagnosis WHERE cycle_id=? ORDER BY created_at DESC,diagnosis_id DESC LIMIT 1",

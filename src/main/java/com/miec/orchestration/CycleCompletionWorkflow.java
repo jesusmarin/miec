@@ -94,6 +94,11 @@ class CycleCompletionWorkflow {
         if(context.choice().selectedAction()!=DecisionAction.CLOSE_CYCLE)throw fail(CONFLICT,"CLOSURE_NOT_SELECTED","La decisión humana no seleccionó cierre; la continuidad requiere su contrato operativo");
         UUID event=store.change(context.locked().cycle(),"E14_FINALIZADO",EventType.CYCLE_FINISHED,actor,command.reason().trim(),"cycle-closure:"+cycleId);
         var at=eventTime(event);
+        if(store.jdbc.queryForObject("SELECT COUNT(*) FROM cycle_round WHERE cycle_id=? AND round_state='ACTIVE'",Integer.class,cycleId)>0) {
+            if(store.jdbc.queryForObject("SELECT COUNT(*) FROM plan_completion WHERE cycle_id=?",Integer.class,cycleId)!=1)
+                throw fail(CONFLICT,"PLAN_COMPLETION_REQUIRED","La ronda explícita requiere concluir su plan antes del cierre");
+            store.jdbc.update("UPDATE cycle_round SET round_state='CONCLUDED',active_cycle_id=NULL,concluded_at=?,version=version+1 WHERE cycle_id=? AND round_state='ACTIVE'",stamp(at),cycleId);
+        }
         if(store.jdbc.update("UPDATE cycle SET closed_at=?,closure_reason=? WHERE cycle_id=? AND state='E14_FINALIZADO' AND closed_at IS NULL",stamp(at),command.reason().trim(),cycleId)!=1)
             throw fail(CONFLICT,"CYCLE_ALREADY_CLOSED","El ciclo ya tiene cierre");
         store.jdbc.update("INSERT INTO cycle_closure VALUES (?,?,?,?,?,?,TRUE,?,?)",cycleId,learning.decisionId(),learning.learningId(),actor,command.reason().trim(),command.summary().trim(),event,stamp(at));
@@ -128,7 +133,7 @@ class CycleCompletionWorkflow {
                 recorder.retrieve(rs.getObject("decision_id",UUID.class))),cycleId).stream().findFirst().orElse(null);
     }
     /** Cierra la ventana de nuevas escrituras IR-009 de todos los planes del ciclo antes de comprobar incertidumbre. */
-    private void requireHealthy(UUID planId,UUID cycleId) {
+    void requireHealthy(UUID planId,UUID cycleId) {
         store.jdbc.query("SELECT plan_id FROM intervention_plan WHERE cycle_id=? ORDER BY plan_id FOR UPDATE",(rs,row)->rs.getObject(1,UUID.class),cycleId);
         store.jdbc.query("SELECT run_id FROM plan_execution WHERE plan_id=? FOR UPDATE",(rs,row)->rs.getObject(1,UUID.class),planId);
         if(!technicalClear(planId,cycleId))throw fail(CONFLICT,"EXECUTION_UNCERTAIN","Hay resultados técnicos pendientes o contradictorios en el ciclo");

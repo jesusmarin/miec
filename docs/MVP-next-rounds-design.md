@@ -1,7 +1,13 @@
 # Paso 8 — diseño de nuevas rondas
 
-Estado: diseño, no implementación. No crea migraciones, rutas ni transiciones
-nuevas. Complementa [el cierre administrativo E14](MVP-06-decision-closure.md).
+Actualización MVP-07: el contrato, la persistencia inicial y la conclusión operativa
+se implementan en [07.1–07.3](MVP-07-rounds.md). La continuidad y las rondas
+sucesivas descritas aquí siguen pendientes. La migración V018 no asigna históricos:
+el registro inicial es explícito en E11 con contexto operativo completo.
+
+Estado del documento original: diseño. Este documento no crea migraciones, rutas
+ni transiciones; la implementación parcial está identificada arriba. Complementa
+[el cierre administrativo E14](MVP-06-decision-closure.md).
 Su objetivo es hacer viable la continuidad desde E11 sin alterar historia previa.
 
 ## Problemas que debe resolver el próximo incremento

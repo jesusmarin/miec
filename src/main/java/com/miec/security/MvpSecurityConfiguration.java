@@ -51,7 +51,7 @@ public class MvpSecurityConfiguration {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/**","/swagger-ui/**","/swagger-ui.html","/v3/api-docs","/v3/api-docs/**","/v3/api-docs.yaml").hasAnyRole("AUTHOR","APPROVER")
                         .requestMatchers(HttpMethod.POST,"/api/authorizations/*/approve","/api/authorizations/*/reject",
-                                "/api/cycles/*/decisions","/api/cycles/*/close",
+                                "/api/cycles/*/decisions","/api/cycles/*/close","/api/cycles/*/rounds/*/plan-completion",
                                 "/api/cycles/*/plans/*/measurements/reviews","/api/cycles/*/plans/*/measurements/seal",
                                 "/api/plans/*/execution/recover","/api/plans/*/execution/finish","/api/plans/*/execution/reconcile",
                                 "/api/execution/reconciliation-authorizations/*/approve","/api/execution/reconciliation-authorizations/*/reject").hasRole("APPROVER")

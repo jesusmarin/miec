@@ -23,6 +23,7 @@ import static com.miec.orchestration.PlanExecutionContracts.*;
  */
 @Service
 class PlanExecutionStore {
+    private final PlanActivityQuery planActivity;
     private final InterventionSupport store;
     private final InterventionPlans plans;
     private final AuthorizationPersistenceService permissions;
@@ -33,7 +34,8 @@ class PlanExecutionStore {
 
     /** Recibe servicios reales de autorización, reloj y proyección de IR-009; no duplica sus intentos. */
     PlanExecutionStore(InterventionSupport store,InterventionPlans plans,AuthorizationPersistenceService permissions,
-            ExecutionOutcomeQueryService outcomes,ExecutionActivityService activity,ExecutableActionCatalog catalog,ExecutionIncidentService incidents) {
+            ExecutionOutcomeQueryService outcomes,ExecutionActivityService activity,ExecutableActionCatalog catalog,ExecutionIncidentService incidents,PlanActivityQuery planActivity) {
+        this.planActivity=planActivity;
         this.store=store; this.plans=plans; this.permissions=permissions; this.outcomes=outcomes; this.activity=activity; this.catalog=catalog;this.incidents=incidents;
     }
 
@@ -52,6 +54,7 @@ class PlanExecutionStore {
     public Claim reserve(UUID cycleId,UUID planId,Start command,String actor) {
         store.lifecycle.validate(command);
         var locked=plans.lock(planId); var cycle=locked.cycle(); var plan=locked.plan();
+        planActivity.requireOpen(planId);
         if(!cycle.cycleId().equals(cycleId)) throw fail(BAD_REQUEST,"PLAN_CYCLE_MISMATCH","El plan no pertenece al ciclo");
         if(!rows(planId,false).isEmpty()) throw fail(CONFLICT,"PLAN_EXECUTION_EXISTS","El plan ya tiene coordinación; consulte su ejecución");
         store.expect(cycle,command.expectedCycleVersion(),"E06_PREPARADO");
@@ -114,6 +117,7 @@ class PlanExecutionStore {
     /** Fija DISPATCHING antes de salir de la transacción; una caída posterior nunca permite reenviar a ciegas. */
     @Transactional(timeout=10)
     public Dispatch beginNext(Claim claim) {
+        planActivity.requireOpen(claim.planId());
         var locked=plans.lock(claim.planId()); var row=required(claim.planId(),true);
         owned(row,claim); unchanged(row,locked.plan());
         if(!"E07_EJECUTANDO".equals(locked.cycle().state())) throw fail(CONFLICT,"CYCLE_NOT_EXECUTING","El ciclo no está ejecutando");
@@ -144,6 +148,7 @@ class PlanExecutionStore {
     /** Comprueba la propiedad justo antes de invocar IR-009, sin mantener una transacción durante el efecto. */
     @Transactional(readOnly=true)
     public void assertOwner(Claim claim) {
+        planActivity.requireOpen(claim.planId());
         var row=required(claim.planId(),false); owned(row,claim);
         var plan=plans.get(claim.planId(),false); unchanged(row,plan);
         if(!"APPROVED".equals(plan.status())||!"E07_EJECUTANDO".equals(store.lifecycle.getCycle(row.cycle()).state()))
@@ -257,6 +262,7 @@ class PlanExecutionStore {
 
     /** Valida estado aprobado y todos los enlaces sin producir efectos ni reservar claves IR-009. */
     private void validatePlan(InterventionViews.Plan plan) {
+        planActivity.requireOpen(plan.planId());
         if(!"APPROVED".equals(plan.status())||plan.actions().isEmpty()) throw fail(CONFLICT,"PLAN_NOT_APPROVED","Se requiere un plan aprobado con acciones");
         for(var action:plan.actions()) resolve(action);
     }
