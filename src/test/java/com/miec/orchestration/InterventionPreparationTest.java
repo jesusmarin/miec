@@ -66,7 +66,7 @@ class InterventionPreparationTest {
             sql.update("INSERT INTO cycle(cycle_id,system_id) VALUES (?,?)",cycle,system);
             sql.update("INSERT INTO intervention_plan(plan_id,cycle_id,status) VALUES (?,?,'PROPOSED')",plan,cycle);
             var before=sql.queryForMap("SELECT * FROM intervention_plan WHERE plan_id=?",plan);
-            assertEquals(1,Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+            assertEquals(1,Flyway.configure().dataSource(source).target("011").load().migrate().migrationsExecuted);
             var after=sql.queryForMap("SELECT * FROM intervention_plan WHERE plan_id=?",plan);
             before.forEach((key,value)->assertEquals(value,after.get(key)));
             assertNull(after.get("CREATED_BY")); assertEquals(0L,after.get("REVISION"));

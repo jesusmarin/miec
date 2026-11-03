@@ -27,7 +27,7 @@ public final class InterventionViews {
     public record ReviewDiagnosis(UUID diagnosisId,String summary,String createdBy,UUID evidenceId,
                                    String observation,String sourceReference,String qualityStatus,String limitations) { }
     /** Contexto exacto referenciado por un plan y huella de su contenido revisable. */
-    public record ReviewContext(UUID planId,UUID cycleId,String planFingerprint,ReviewObjective objective,ReviewDiagnosis diagnosis) { }
+    public record ReviewContext(UUID planId,UUID cycleId,String planFingerprint,ReviewObjective objective,ReviewDiagnosis diagnosis,MeasurementContracts.Context measurements) { }
     /** Estado de solicitud; APPROVED_PENDING_PLAN todavía no permite ejecutar. */
     public record Authorization(UUID authorizationId, UUID planId, UUID actionId, String scope, String status,
                                 String requestedBy, String approvedBy, Instant issuedAt, Instant expiresAt,

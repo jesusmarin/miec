@@ -14,7 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Traduce rechazos del MVP y oculta SQL, payloads y trazas en las respuestas HTTP. */
-@RestControllerAdvice(assignableTypes={LifecycleController.class,InterventionController.class})
+@RestControllerAdvice(assignableTypes={LifecycleController.class,InterventionController.class,MeasurementController.class})
 public class LifecycleApiErrors {
     private static final Logger LOG = LoggerFactory.getLogger(LifecycleApiErrors.class);
 

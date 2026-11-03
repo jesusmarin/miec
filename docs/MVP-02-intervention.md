@@ -168,3 +168,10 @@ instalados en el servidor. No aceptará comandos arbitrarios o ejecutores en JSO
 Persisten como trabajo posterior reanudación/reformulación tras rechazo, renovación
 de solicitudes vencidas, administración de usuarios, controles por objeto/múltiples
 operadores, integridad a nivel SQL, otros motores y endurecimiento productivo.
+
+## Objetivos medibles del MVP v01
+
+La ampliacion compatible de objetivos numericos, lineas base y cierre explicito
+se documenta en [MVP-02-measurements.md](MVP-02-measurements.md). El contrato
+anterior de observacion sigue disponible para ciclos historicos sin criterios
+estructurados; los ciclos medibles requieren su cierre explicito.

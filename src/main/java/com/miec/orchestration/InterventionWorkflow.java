@@ -23,10 +23,11 @@ class InterventionWorkflow {
     private final InterventionPlans plans;
     private final InterventionAuthorizations authorizations;
     private final AuthorizationValidityPolicy validity;
+    private final MeasurementQueries measurements;
 
     /** Recibe coordinación transaccional compartida con el ciclo. */
-    InterventionWorkflow(InterventionSupport store,InterventionPlans plans,InterventionAuthorizations authorizations,AuthorizationValidityPolicy validity) {
-        this.store=store; this.plans=plans; this.authorizations=authorizations; this.validity=validity;
+    InterventionWorkflow(InterventionSupport store,InterventionPlans plans,InterventionAuthorizations authorizations,AuthorizationValidityPolicy validity,MeasurementQueries measurements) {
+        this.store=store; this.plans=plans; this.authorizations=authorizations; this.validity=validity; this.measurements=measurements;
     }
 
     /** Registra un objetivo del mismo sistema y completa E01 a E02. */
@@ -49,6 +50,8 @@ class InterventionWorkflow {
     public Preparation observe(UUID cycleId,Observe command,String actor) {
         store.lifecycle.validate(command); actor=LifecycleService.actor(actor);
         var cycle=store.lock(cycleId); store.expect(cycle,command.expectedVersion(),"E02_OBSERVANDO");
+        if(store.jdbc.queryForObject("SELECT COUNT(*) FROM indicator i JOIN cycle_objective co ON co.objective_id=i.objective_id WHERE co.cycle_id=? AND i.comparison_operator IS NOT NULL",Integer.class,cycleId)>0)
+            throw fail(CONFLICT,"EXPLICIT_OBSERVATION_CLOSURE_REQUIRED","Use mediciones y cierre explícito para este ciclo");
         UUID evidence=UUID.randomUUID(); var time=Timestamp.from(store.lifecycle.now());
         store.jdbc.update("""
                 INSERT INTO evidence(evidence_id,cycle_id,source_type,source_reference,description,captured_at,provenance,quality_status,limitations,created_at)
@@ -66,6 +69,9 @@ class InterventionWorkflow {
         if(store.jdbc.queryForObject("SELECT COUNT(*) FROM evidence WHERE evidence_id=? AND cycle_id=?",Integer.class,command.evidenceId(),cycleId)!=1) {
             throw fail(BAD_REQUEST,"INVALID_EVIDENCE","La observación no pertenece al ciclo");
         }
+        if(store.jdbc.queryForObject("SELECT COUNT(*) FROM indicator i JOIN cycle_objective co ON co.objective_id=i.objective_id WHERE co.cycle_id=? AND i.comparison_operator IS NOT NULL",Integer.class,cycleId)>0
+                && store.jdbc.queryForObject("SELECT COUNT(*) FROM evidence WHERE evidence_id=? AND source_reference='MVP-MEASURE-CLOSURE'",Integer.class,command.evidenceId())!=1)
+            throw fail(BAD_REQUEST,"BASELINE_CLOSURE_REQUIRED","El diagnóstico debe referenciar el cierre de línea base");
         UUID diagnosis=UUID.randomUUID();
         store.jdbc.update("INSERT INTO cycle_diagnosis VALUES (?,?,?,?,?,?)",diagnosis,cycleId,command.evidenceId(),command.summary().trim(),actor,Timestamp.from(store.lifecycle.now()));
         store.change(cycle,"E04_PLANIFICANDO",EventType.DIAGNOSIS_RECORDED,actor,command.reason().trim(),"diagnosis:"+diagnosis);
@@ -121,7 +127,7 @@ class InterventionWorkflow {
                 """,(rs,row)->new ReviewDiagnosis(rs.getObject(1,UUID.class),rs.getString(2),rs.getString(3),rs.getObject(4,UUID.class),
                 rs.getString(5),rs.getString(6),rs.getString(7),rs.getString(8)),plan.diagnosisId(),plan.cycleId());
         if(objectives.size()!=1||diagnoses.size()!=1) throw fail(CONFLICT,"CONTEXT_UNAVAILABLE","No se puede reconstruir el contexto del plan");
-        return new ReviewContext(plan.planId(),plan.cycleId(),plan.fingerprint(),objectives.getFirst(),diagnoses.getFirst());
+        return new ReviewContext(plan.planId(),plan.cycleId(),plan.fingerprint(),objectives.getFirst(),diagnoses.getFirst(),measurements.context(plan.cycleId()));
     }
 
     /** Solicita permiso para una acción existente; su huella se obtiene del contenido persistido. */
