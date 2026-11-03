@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 # Cada ejecucion crea recursos nuevos. No se imprimen claves ni cabeceras Basic.
 function Invoke-Mvp02 {
     param([string]$Method,[string]$Path,[object]$Payload,[pscredential]$Credential)
-    $headers = @{ 'X-MIEC-Actor' = $AuthorCredential.UserName }
+    $headers = @{}
     if($null -ne $Credential) {
         $pair = $Credential.UserName + ':' + $Credential.GetNetworkCredential().Password
         $headers.Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))
@@ -20,10 +20,10 @@ function Invoke-Mvp02 {
     Invoke-RestMethod @arguments
 }
 
-$system = Invoke-Mvp02 'Post' '/api/systems' @{ name='MVP v01 mediciones' } $null
-$cycle = Invoke-Mvp02 'Post' "/api/systems/$($system.systemId)/cycles" @{} $null
+$system = Invoke-Mvp02 'Post' '/api/systems' @{ name='MVP v01 mediciones' } $AuthorCredential
+$cycle = Invoke-Mvp02 'Post' "/api/systems/$($system.systemId)/cycles" @{} $AuthorCredential
 $base = "/api/cycles/$($cycle.cycleId)"
-$started = Invoke-Mvp02 'Post' "$base/start" @{ expectedVersion=$cycle.version; reason='Iniciar' } $null
+$started = Invoke-Mvp02 'Post' "$base/start" @{ expectedVersion=$cycle.version; reason='Iniciar' } $AuthorCredential
 $objective = Invoke-Mvp02 'Post' "$base/measurement/initialize" @{
     expectedVersion=$started.version; objective='Reducir latencia'; successCriteria='p95 <= 100 ms'; reason='Objetivo medible'
     criteria=@(@{ name='p95'; unit='ms'; operator='LTE'; target=100 })

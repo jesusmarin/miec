@@ -104,7 +104,7 @@ class MeasurementWorkflowTest {
             sql.update("INSERT INTO indicator(indicator_id,objective_id,name) VALUES (?,?,'legacy')",indicator,objective);
             sql.update("INSERT INTO baseline(baseline_id,cycle_id,indicator_id,observed_value,measured_at) VALUES (?,?,?,12.5,CURRENT_TIMESTAMP)",baseline,cycle,indicator);
             var before=sql.queryForMap("SELECT * FROM baseline WHERE baseline_id=?",baseline);
-            assertEquals(1,org.flywaydb.core.Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+            assertEquals(1,org.flywaydb.core.Flyway.configure().dataSource(source).target("012").load().migrate().migrationsExecuted);
             var after=sql.queryForMap("SELECT * FROM baseline WHERE baseline_id=?",baseline);
             before.forEach((key,value)->assertEquals(value,after.get(key)));
             assertNull(after.get("UNIT")); assertNull(after.get("RECORDED_BY"));

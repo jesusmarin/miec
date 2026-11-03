@@ -15,23 +15,27 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** Comprueba rutas reales, códigos HTTP y validación sin mocks de controladores. */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties={"spring.datasource.url=jdbc:h2:mem:lifecycle_api;DB_CLOSE_DELAY=-1", "server.address=127.0.0.1"})
+        properties={"spring.datasource.url=jdbc:h2:mem:lifecycle_api;DB_CLOSE_DELAY=-1", "server.address=127.0.0.1",
+                "miec.api.author.username=api-author","miec.api.author.password=api-author-test-password",
+                "miec.api.approver.username=api-approver","miec.api.approver.password=api-approver-test-password"})
 class LifecycleApiIntegrationTest {
     @LocalServerPort private int port;
     @Autowired private JdbcTemplate jdbc;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String credentials = "Basic " + java.util.Base64.getEncoder().encodeToString(
+            "api-author:api-author-test-password".getBytes(java.nio.charset.StandardCharsets.UTF_8));
     private final JsonMapper json = JsonMapper.builder().build();
 
-    /** Publica un comando JSON; permite omitir la identidad para comprobar errores de entrada. */
+    /** Publica un comando JSON; autentica al autor y permite falsificar una cabecera que el servidor debe ignorar. */
     private HttpResponse<String> post(String path, String body, String actor) throws Exception {
-        var request = HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(15)).header("Content-Type", "application/json");
+        var request = HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(15)).header("Content-Type", "application/json").header("Authorization", credentials);
         if (actor != null) request.header("X-MIEC-Actor", actor);
         return client.send(request.POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
     }
 
     /** Consulta el servidor real sobre un puerto asignado a esta prueba. */
     private HttpResponse<String> get(String path) throws Exception {
-        return client.send(HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(15)).GET().build(), HttpResponse.BodyHandlers.ofString());
+        return client.send(HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(15)).header("Authorization", credentials).GET().build(), HttpResponse.BodyHandlers.ofString());
     }
 
     /** Construye direcciones locales sin utilizar el puerto de la aplicación del usuario. */
@@ -83,14 +87,14 @@ class LifecycleApiIntegrationTest {
         assertFalse(invalid.body().contains("stackTrace"));
     }
 
-    /** Inexistencia e identidad de auditoría ausente se distinguen de fallos internos. */
-    @Test void shouldRejectMissingResourcesAndActor() throws Exception {
+    /** Los recursos inexistentes mantienen 404; omitir o falsificar X-MIEC-Actor no cambia la identidad real. */
+    @Test void shouldRejectMissingResourcesAndIgnoreActorHeader() throws Exception {
         assertEquals(404, get("/api/systems/" + UUID.randomUUID()).statusCode());
         assertEquals(404, get("/api/cycles/" + UUID.randomUUID()).statusCode());
         assertEquals(404, post("/api/systems/" + UUID.randomUUID() + "/cycles", "{}", "op").statusCode());
         String system = createSystem();
-        assertEquals(400, post("/api/systems/" + system + "/cycles", "{}", null).statusCode());
-        assertEquals(400, post("/api/systems/" + system + "/cycles", "{}", " ").statusCode());
+        assertEquals(201, post("/api/systems/" + system + "/cycles", "{}", null).statusCode());
+        assertEquals(201, post("/api/systems/" + system + "/cycles", "{}", " ").statusCode());
     }
 
     /** La ruta de inicio requiere versión/motivo y rechaza tanto duplicados como cambios de estado arbitrarios. */
@@ -123,7 +127,7 @@ class LifecycleApiIntegrationTest {
         var response = get(path + "?limit=1");
         assertEquals(200, response.statusCode());
         var item = json.readTree(response.body()).path("items").get(0);
-        assertEquals("starter", item.path("actorId").asString());
+        assertEquals("api-author", item.path("actorId").asString());
         assertEquals("motivo HTTP", item.path("reason").asString());
         assertEquals(400, get(path + "?limit=0").statusCode());
         assertEquals(400, get(path + "?limit=101").statusCode());

@@ -24,10 +24,11 @@ class InterventionWorkflow {
     private final InterventionAuthorizations authorizations;
     private final AuthorizationValidityPolicy validity;
     private final MeasurementQueries measurements;
+    private final com.miec.execution.ExecutableActionCatalog executables;
 
     /** Recibe coordinación transaccional compartida con el ciclo. */
-    InterventionWorkflow(InterventionSupport store,InterventionPlans plans,InterventionAuthorizations authorizations,AuthorizationValidityPolicy validity,MeasurementQueries measurements) {
-        this.store=store; this.plans=plans; this.authorizations=authorizations; this.validity=validity; this.measurements=measurements;
+    InterventionWorkflow(InterventionSupport store,InterventionPlans plans,InterventionAuthorizations authorizations,AuthorizationValidityPolicy validity,MeasurementQueries measurements,com.miec.execution.ExecutableActionCatalog executables) {
+        this.store=store; this.plans=plans; this.authorizations=authorizations; this.validity=validity; this.measurements=measurements; this.executables=executables;
     }
 
     /** Registra un objetivo del mismo sistema y completa E01 a E02. */
@@ -94,7 +95,14 @@ class InterventionWorkflow {
         if(diagnoses.isEmpty()) throw fail(CONFLICT,"DIAGNOSIS_REQUIRED","Se necesita un diagnóstico del ciclo");
         UUID id=UUID.randomUUID();
         var actions=new ArrayList<PlanAction>();
-        for(var action:command.actions()) actions.add(new PlanAction(UUID.randomUUID(),action.actionType(),action.description().trim()));
+        for(var action:command.actions()) {
+            com.miec.execution.ExecutableActions.Definition definition=null;
+            if(action.execution()!=null) {
+                try { definition=executables.capture(action.execution()); }
+                catch(RuntimeException invalid) { throw fail(BAD_REQUEST,"INVALID_EXECUTABLE_ACTION","El adaptador o la solicitud ejecutable no cumplen el contrato instalado"); }
+            }
+            actions.add(new PlanAction(UUID.randomUUID(),action.actionType(),action.description().trim(),definition));
+        }
         String document=plans.json.writeValueAsString(Map.of("schemaVersion","01","actions",actions));
         store.jdbc.update("""
                 INSERT INTO intervention_plan(plan_id,cycle_id,objective_ids,actions,expected_outcomes,rollback_strategy,
