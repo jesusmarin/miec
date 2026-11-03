@@ -15,6 +15,7 @@ import static com.miec.orchestration.LifecycleException.Kind.*;
 /** Transacciones de cierre con F01, versiones y proyección IR-009; nunca efectúa IO externo. */
 @Service
 class CycleCompletionWorkflow {
+    private final RoundScope scope;
     private final InterventionSupport store;
     private final InterventionPlans plans;
     private final ClosedSetEvaluationStore evaluations;
@@ -24,7 +25,8 @@ class CycleCompletionWorkflow {
     private final JdbcDecisionRecorder recorder;
     /** Comparte bloqueos y persistencia de evaluación con los incrementos anteriores. */
     CycleCompletionWorkflow(InterventionSupport store,InterventionPlans plans,ClosedSetEvaluationStore evaluations,
-                            PlanExecutionStore runs,ExecutionOutcomeQueryService outcomes,DefaultDecisionEngine engine,JdbcDecisionRecorder recorder) {
+                            PlanExecutionStore runs,ExecutionOutcomeQueryService outcomes,DefaultDecisionEngine engine,JdbcDecisionRecorder recorder,RoundScope scope) {
+        this.scope=scope;
         this.store=store;this.plans=plans;this.evaluations=evaluations;this.runs=runs;this.outcomes=outcomes;
         this.engine=engine;this.recorder=recorder;
     }
@@ -34,18 +36,29 @@ class CycleCompletionWorkflow {
         store.lifecycle.validate(command);var locked=plans.lock(planId);
         if(!cycleId.equals(locked.cycle().cycleId()))throw fail(BAD_REQUEST,"PLAN_CYCLE_MISMATCH","El plan no pertenece al ciclo");
         store.expect(locked.cycle(),command.expectedVersion(),"E08_VERIFICANDO");
+        scope.requirePlan(cycleId,planId);
         requireHealthy(planId,cycleId);
         var saved=evaluations.persist(planId,command.setId(),command.expectedVersion(),actor);
         UUID event=store.change(locked.cycle(),"E09_DECIDIENDO",EventType.EVALUATION_RECORDED,actor,command.reason().trim(),"evaluation:"+saved.report().result().id());
         var at=eventTime(event);
-        store.jdbc.update("INSERT INTO evaluation_admission VALUES (?,?,?,?,?,?,?)",saved.report().result().id(),cycleId,event,command.expectedVersion(),actor,command.reason().trim(),stamp(at));
+        var round=scope.current(cycleId);scope.admit(round,locked.plan(),saved);
+        store.jdbc.update("INSERT INTO evaluation_admission(evaluation_id,cycle_id,event_id,expected_version,recorded_by,reason,recorded_at,round_id,legacy_cycle_id) VALUES (?,?,?,?,?,?,?,?,?)",saved.report().result().id(),cycleId,event,command.expectedVersion(),actor,command.reason().trim(),stamp(at),round,round==null?cycleId:null);
         return new EvaluationCreated(saved,view(cycleId));
     }
     /** Consulta el recibo operativo conservando ausencia de pasos todavía no realizados. */
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public View view(UUID cycleId) {
-        var cycle=store.lifecycle.getCycle(cycleId);var admission=admission(cycleId);
-        return new View(cycle,admission,human(cycleId),learning(cycleId),closure(cycleId),admission!=null&&!technicalClear(evaluations.get(admission.evaluationId()).inputs().planId(),cycleId));
+        return viewFor(cycleId,scope.current(cycleId));
+    }
+    /** Consulta recibos de una ronda historica sin seleccionar los de la actual. */
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
+    public View forRound(UUID cycleId,UUID round){scope.requireRound(cycleId,round);return viewFor(cycleId,round);}
+    /** Proyecta recibos con identidad explicita y conserva la incertidumbre tecnica actual. */
+    private View viewFor(UUID cycleId,UUID round){
+        var cycle=store.lifecycle.getCycle(cycleId);var admission=admission(cycleId,round);var human=human(cycleId,round);
+        var closed=closure(cycleId);var learning=learning(cycleId,round);
+        if(closed!=null&&(learning==null||!closed.learningId().equals(learning.learningId())))closed=null;
+        return new View(cycle,admission,human,learning,closed,admission!=null&&!technicalClear(evaluations.get(admission.evaluationId()).inputs().planId(),cycleId));
     }
     /** Vista previa sin autoridad ni cambios; al decidir se conserva una nueva propuesta con fecha de base. */
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
@@ -69,7 +82,8 @@ class CycleCompletionWorkflow {
         if(outcome.alternatives().stream().noneMatch(a->a.action()==command.action()&&a.admissible()))throw fail(CONFLICT,"DECISION_ACTION_INADMISSIBLE","La intención no es admisible bajo la política instalada");
         UUID id=recorder.record(outcome);
         UUID event=store.change(locked.cycle(),"E10_APRENDIENDO",EventType.DECISION_RECORDED,actor,command.reason().trim(),"decision:"+id);
-        store.jdbc.update("INSERT INTO human_decision VALUES (?,?,?,?,?,?,TRUE,?,?,?)",id,command.evaluationId(),cycleId,command.action().name(),actor,command.reason().trim(),MvpAlternativePolicy.VERSION,event,stamp(eventTime(event)));
+        var round=scope.current(cycleId);
+        store.jdbc.update("INSERT INTO human_decision(decision_id,evaluation_id,cycle_id,selected_action,decided_by,reason,acknowledged_limitations,policy_version,event_id,decided_at,round_id,legacy_cycle_id) VALUES (?,?,?,?,?,?,TRUE,?,?,?,?,?)",id,command.evaluationId(),cycleId,command.action().name(),actor,command.reason().trim(),MvpAlternativePolicy.VERSION,event,stamp(eventTime(event)),round,round==null?cycleId:null);
         return view(cycleId);
     }
     /** Aprendizaje explícito con confianza y evidencias del evaluador, nunca niveles elegidos por el cliente. */
@@ -83,7 +97,9 @@ class CycleCompletionWorkflow {
                 VALUES (?,?,?,? FORMAT JSON,?,?,'RECORDED',?,?,?,?,?)
                 """,id,cycleId,command.statement().trim(),plans.json.writeValueAsString(evaluation.evidenceAssessment().evidenceIds()),evaluation.confidenceLevel().name(),
                 command.conditions().trim(),stamp(eventTime(event)),command.decisionId(),actor,command.limitations().trim(),event);
-        return view(cycleId);
+        var result=view(cycleId);var round=scope.current(cycleId);
+        if(round!=null)scope.capture(round,context.locked().plan(),context.evaluation(),result);
+        return result;
     }
     /** Cierre administrativo explícito: estado, closed_at, evento, acta y versión son una sola confirmación. */
     @Transactional(timeout=10)
@@ -95,7 +111,7 @@ class CycleCompletionWorkflow {
         UUID event=store.change(context.locked().cycle(),"E14_FINALIZADO",EventType.CYCLE_FINISHED,actor,command.reason().trim(),"cycle-closure:"+cycleId);
         var at=eventTime(event);
         if(store.jdbc.queryForObject("SELECT COUNT(*) FROM cycle_round WHERE cycle_id=? AND round_state='ACTIVE'",Integer.class,cycleId)>0) {
-            if(store.jdbc.queryForObject("SELECT COUNT(*) FROM plan_completion WHERE cycle_id=?",Integer.class,cycleId)!=1)
+            if(store.jdbc.queryForObject("SELECT COUNT(*) FROM plan_completion WHERE cycle_id=? AND plan_id=?",Integer.class,cycleId,context.locked().plan().planId())!=1)
                 throw fail(CONFLICT,"PLAN_COMPLETION_REQUIRED","La ronda explícita requiere concluir su plan antes del cierre");
             store.jdbc.update("UPDATE cycle_round SET round_state='CONCLUDED',active_cycle_id=NULL,concluded_at=?,version=version+1 WHERE cycle_id=? AND round_state='ACTIVE'",stamp(at),cycleId);
         }
@@ -121,16 +137,20 @@ class CycleCompletionWorkflow {
         return new Chosen(locked,choice,saved);
     }
     /** Recupera aprendizaje operativo sin reinterpretar registros históricos anteriores a V017. */
-    private Learning learning(UUID cycleId) {
-        return store.jdbc.query("SELECT * FROM learning WHERE cycle_id=? AND decision_id IS NOT NULL",(rs,row)->new Learning(rs.getObject("learning_id",UUID.class),rs.getObject("decision_id",UUID.class),
+    private Learning learning(UUID cycleId) {return learning(cycleId,scope.current(cycleId));}
+    /** Filtra aprendizaje por el plan vinculado a la ronda, sin escoger el ultimo global. */
+    private Learning learning(UUID cycleId,UUID round) {
+        return store.jdbc.query("SELECT l.* FROM learning l WHERE cycle_id=? AND decision_id IS NOT NULL "+(round==null?"":"AND EXISTS(SELECT 1 FROM human_decision h JOIN evaluation e ON e.evaluation_id=h.evaluation_id JOIN round_plan_binding b ON b.plan_id=e.plan_id WHERE h.decision_id=l.decision_id AND b.round_id=?)")+"",(rs,row)->new Learning(rs.getObject("learning_id",UUID.class),rs.getObject("decision_id",UUID.class),
                 rs.getString("statement"),rs.getString("applicable_conditions"),rs.getString("limitations"),rs.getString("recorded_by"),ConfidenceLevel.valueOf(rs.getString("confidence_level")),
-                rs.getTimestamp("created_at").toInstant()),cycleId).stream().findFirst().orElse(null);
+                rs.getTimestamp("created_at").toInstant()),round==null?new Object[]{cycleId}:new Object[]{cycleId,round}).stream().findFirst().orElse(null);
     }
     /** Reconstruye decisión y recomendación originales sin recalcular políticas al consultar. */
-    private HumanDecision human(UUID cycleId) {
-        return store.jdbc.query("SELECT * FROM human_decision WHERE cycle_id=?",(rs,row)->new HumanDecision(rs.getObject("decision_id",UUID.class),rs.getObject("evaluation_id",UUID.class),
+    private HumanDecision human(UUID cycleId) {return human(cycleId,scope.current(cycleId));}
+    /** Selecciona la decision del plan de ronda con referencias exactas. */
+    private HumanDecision human(UUID cycleId,UUID round) {
+        return store.jdbc.query("SELECT h.* FROM human_decision h WHERE cycle_id=? "+roundFilter("h",round)+"",(rs,row)->new HumanDecision(rs.getObject("decision_id",UUID.class),rs.getObject("evaluation_id",UUID.class),
                 DecisionAction.valueOf(rs.getString("selected_action")),rs.getString("decided_by"),rs.getString("reason"),rs.getString("policy_version"),rs.getTimestamp("decided_at").toInstant(),
-                recorder.retrieve(rs.getObject("decision_id",UUID.class))),cycleId).stream().findFirst().orElse(null);
+                recorder.retrieve(rs.getObject("decision_id",UUID.class))),round==null?new Object[]{cycleId}:new Object[]{cycleId,round}).stream().findFirst().orElse(null);
     }
     /** Cierra la ventana de nuevas escrituras IR-009 de todos los planes del ciclo antes de comprobar incertidumbre. */
     void requireHealthy(UUID planId,UUID cycleId) {
@@ -139,10 +159,14 @@ class CycleCompletionWorkflow {
         if(!technicalClear(planId,cycleId))throw fail(CONFLICT,"EXECUTION_UNCERTAIN","Hay resultados técnicos pendientes o contradictorios en el ciclo");
     }
     /** Recibo único del ciclo; no fabrica admisiones para conclusiones internas históricas. */
-    private Admission admission(UUID cycleId) {
-        return store.jdbc.query("SELECT * FROM evaluation_admission WHERE cycle_id=?",(rs,row)->new Admission(rs.getObject("evaluation_id",UUID.class),
-                rs.getObject("event_id",UUID.class),rs.getString("recorded_by"),rs.getString("reason"),rs.getTimestamp("recorded_at").toInstant()),cycleId).stream().findFirst().orElse(null);
+    private Admission admission(UUID cycleId) {return admission(cycleId,scope.current(cycleId));}
+    /** Selecciona solamente la admision del plan de ronda indicado. */
+    private Admission admission(UUID cycleId,UUID round) {
+        return store.jdbc.query("SELECT a.* FROM evaluation_admission a WHERE cycle_id=? "+roundFilter("a",round)+"",(rs,row)->new Admission(rs.getObject("evaluation_id",UUID.class),
+                rs.getObject("event_id",UUID.class),rs.getString("recorded_by"),rs.getString("reason"),rs.getTimestamp("recorded_at").toInstant()),round==null?new Object[]{cycleId}:new Object[]{cycleId,round}).stream().findFirst().orElse(null);
     }
+    /** Fragmento cerrado que filtra por el plan aprobado de una ronda. */
+    private static String roundFilter(String alias,UUID round){return round==null?"":"AND EXISTS(SELECT 1 FROM evaluation e JOIN round_plan_binding b ON b.plan_id=e.plan_id WHERE e.evaluation_id="+alias+".evaluation_id AND b.round_id=?)";}
     /** Todas las incertidumbres históricas deben estar resueltas, no solo el último intento de cada acción. */
     private boolean technicalClear(UUID planId,UUID cycleId) {
         var run=runs.view(planId);

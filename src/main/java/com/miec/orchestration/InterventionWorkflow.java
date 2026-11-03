@@ -19,6 +19,7 @@ import static com.miec.orchestration.LifecycleException.Kind.*;
 /** Flujo interno; solo la fachada autenticada lo expone fuera del paquete de aplicación. */
 @Service
 class InterventionWorkflow {
+    private final RoundScope scope;
     private final PlanActivityQuery planActivity;
     private final InterventionSupport store;
     private final InterventionPlans plans;
@@ -28,7 +29,8 @@ class InterventionWorkflow {
     private final com.miec.execution.ExecutableActionCatalog executables;
 
     /** Recibe coordinación transaccional compartida con el ciclo. */
-    InterventionWorkflow(InterventionSupport store,InterventionPlans plans,InterventionAuthorizations authorizations,AuthorizationValidityPolicy validity,MeasurementQueries measurements,com.miec.execution.ExecutableActionCatalog executables,PlanActivityQuery planActivity) {
+    InterventionWorkflow(InterventionSupport store,InterventionPlans plans,InterventionAuthorizations authorizations,AuthorizationValidityPolicy validity,MeasurementQueries measurements,com.miec.execution.ExecutableActionCatalog executables,PlanActivityQuery planActivity,RoundScope scope) {
+        this.scope=scope;
         this.planActivity=planActivity;
         this.store=store; this.plans=plans; this.authorizations=authorizations; this.validity=validity; this.measurements=measurements; this.executables=executables;
     }
@@ -60,6 +62,7 @@ class InterventionWorkflow {
                 INSERT INTO evidence(evidence_id,cycle_id,source_type,source_reference,description,captured_at,provenance,quality_status,limitations,created_at)
                 VALUES (?,?,'HUMAN_REPORT',?,?,?,?,'UNVERIFIED','Reporte manual; no acredita por sí solo una conclusión',?)
                 """,evidence,cycleId,command.sourceReference(),command.description().trim(),time,actor,time);
+        scope.observation(cycleId,evidence);
         store.change(cycle,"E03_DIAGNOSTICANDO",EventType.OBSERVATION_RECORDED,actor,command.reason().trim(),"evidence:"+evidence);
         return new Preparation(store.lifecycle.getCycle(cycleId),evidence);
     }
@@ -75,8 +78,10 @@ class InterventionWorkflow {
         if(store.jdbc.queryForObject("SELECT COUNT(*) FROM indicator i JOIN cycle_objective co ON co.objective_id=i.objective_id WHERE co.cycle_id=? AND i.comparison_operator IS NOT NULL",Integer.class,cycleId)>0
                 && store.jdbc.queryForObject("SELECT COUNT(*) FROM evidence WHERE evidence_id=? AND source_reference='MVP-MEASURE-CLOSURE'",Integer.class,command.evidenceId())!=1)
             throw fail(BAD_REQUEST,"BASELINE_CLOSURE_REQUIRED","El diagnóstico debe referenciar el cierre de línea base");
+        scope.requireObservation(cycleId,command.evidenceId());
         UUID diagnosis=UUID.randomUUID();
         store.jdbc.update("INSERT INTO cycle_diagnosis VALUES (?,?,?,?,?,?)",diagnosis,cycleId,command.evidenceId(),command.summary().trim(),actor,Timestamp.from(store.lifecycle.now()));
+        scope.diagnosis(cycleId,diagnosis);
         store.change(cycle,"E04_PLANIFICANDO",EventType.DIAGNOSIS_RECORDED,actor,command.reason().trim(),"diagnosis:"+diagnosis);
         return new Preparation(store.lifecycle.getCycle(cycleId),diagnosis);
     }
@@ -93,8 +98,9 @@ class InterventionWorkflow {
         if(!planActivity.active(cycleId).isEmpty()) {
             throw fail(CONFLICT,"ACTIVE_PLAN_EXISTS","El ciclo ya tiene un plan activo");
         }
-        var diagnoses=store.jdbc.query("SELECT diagnosis_id FROM cycle_diagnosis WHERE cycle_id=? ORDER BY created_at DESC,diagnosis_id DESC LIMIT 1",
-                (rs,row)->rs.getObject(1,UUID.class),cycleId);
+        var round=scope.current(cycleId);
+        var diagnoses=store.jdbc.query("SELECT diagnosis_id FROM cycle_diagnosis d WHERE cycle_id=? "+(round==null?"":"AND EXISTS(SELECT 1 FROM round_diagnosis r WHERE r.diagnosis_id=d.diagnosis_id AND r.round_id=?) ")+"ORDER BY created_at DESC,diagnosis_id DESC LIMIT 1",
+                (rs,row)->rs.getObject(1,UUID.class),round==null?new Object[]{cycleId}:new Object[]{cycleId,round});
         if(diagnoses.isEmpty()) throw fail(CONFLICT,"DIAGNOSIS_REQUIRED","Se necesita un diagnóstico del ciclo");
         UUID id=UUID.randomUUID();
         var actions=new ArrayList<PlanAction>();
@@ -113,6 +119,7 @@ class InterventionWorkflow {
                 VALUES (?,?,? FORMAT JSON,? FORMAT JSON,?,?,'EXECUTE_ACTION','PROPOSED','MVP-02:1',?,?,0,?)
                 """,id,cycleId,plans.json.writeValueAsString(List.of(command.objectiveId())),document,
                 command.expectedOutcomes().trim(),command.rollbackStrategy().trim(),Timestamp.from(store.lifecycle.now()),actor,diagnoses.getFirst());
+        scope.bind(cycleId,id);
         store.change(cycle,cycle.state(),EventType.PLAN_PROPOSED,actor,"Plan de intervención propuesto","plan:"+id);
         return plans.get(id,false);
     }
@@ -138,7 +145,7 @@ class InterventionWorkflow {
                 """,(rs,row)->new ReviewDiagnosis(rs.getObject(1,UUID.class),rs.getString(2),rs.getString(3),rs.getObject(4,UUID.class),
                 rs.getString(5),rs.getString(6),rs.getString(7),rs.getString(8)),plan.diagnosisId(),plan.cycleId());
         if(objectives.size()!=1||diagnoses.size()!=1) throw fail(CONFLICT,"CONTEXT_UNAVAILABLE","No se puede reconstruir el contexto del plan");
-        return new ReviewContext(plan.planId(),plan.cycleId(),plan.fingerprint(),objectives.getFirst(),diagnoses.getFirst(),measurements.context(plan.cycleId()));
+        return new ReviewContext(plan.planId(),plan.cycleId(),plan.fingerprint(),objectives.getFirst(),diagnoses.getFirst(),measurements.context(plan.cycleId(),scope.forPlan(planId)));
     }
 
     /** Solicita permiso para una acción existente; su huella se obtiene del contenido persistido. */
@@ -146,6 +153,8 @@ class InterventionWorkflow {
     public Authorization requestAuthorization(UUID planId,RequestAuthorization command,String actor) {
         store.lifecycle.validate(command); actor=LifecycleService.actor(actor);
         var locked=plans.lock(planId); var plan=locked.plan(); var cycle=locked.cycle();
+        scope.requirePlan(cycle.cycleId(),planId);
+        planActivity.requireOpen(planId);
         if(plan.version()!=command.expectedPlanVersion()) throw fail(CONFLICT,"PLAN_VERSION_CONFLICT","La revisión del plan cambió");
         if(!List.of("E04_PLANIFICANDO","E05_ESPERANDO_AUTORIZACION").contains(cycle.state())
                 ||!List.of("PROPOSED","AWAITING_AUTHORIZATION").contains(plan.status())) {
@@ -183,6 +192,8 @@ class InterventionWorkflow {
         store.lifecycle.validate(command); actor=LifecycleService.actor(actor);
         var initial=authorizations.get(id);
         var locked=plans.lock(initial.planId()); var plan=locked.plan(); var cycle=locked.cycle();
+        scope.requirePlan(cycle.cycleId(),plan.planId());
+        planActivity.requireOpen(plan.planId());
         var rows=store.jdbc.query("SELECT authorization_id FROM authorizations WHERE authorization_id=? FOR UPDATE",(rs,row)->rs.getObject(1,UUID.class),id);
         if(rows.isEmpty()) throw fail(NOT_FOUND,"AUTHORIZATION_NOT_FOUND","La autorización no existe");
         var current=authorizations.get(id);

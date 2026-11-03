@@ -276,46 +276,78 @@ class MvpLifecycleRestartIT {
                 "MIEC_RECIPIENT_BASE_URL",recipient.base().toString(),"MIEC_RECIPIENT_API_KEY",com.miec.integration.contract.HttpRecipientFixture.API_KEY);
     }
 
-    /** Conserva efecto, evaluación, decisión, aprendizaje y cierre E14 en otra JVM sin nuevos envíos. */
-    @Test @DisplayName("Recorrido hasta E14 persiste entre JVM sin duplicar efectos")
+    /** Tres JVM conservan una solicitud pendiente, dos rondas completas y exactamente dos efectos. */
+    @Test @DisplayName("Dos rondas y continuidad pendiente se recuperan entre tres JVM sin duplicar efectos")
     void shouldPersistExecutableRunAndRecipientEffectAcrossRestart() throws Exception {
         Path jar=Path.of(java.util.Objects.requireNonNull(System.getProperty("miec.mvp.jar"))).toAbsolutePath();
         Path directory=Files.createTempDirectory(Files.createDirectories(Path.of("target","execution-restart-it")),"run-").toAbsolutePath();
         String database="jdbc:h2:file:"+directory.resolve("miec").toString().replace('\\','/')+";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
         String recipientDb="jdbc:h2:file:"+directory.resolve("recipient").toString().replace('\\','/')+";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0";
-        String planId,cycleId,runBody,measurementBody,completionBody,roundBody;
+        String firstPlan,secondPlan,cycleId,requestId,requestBody,oldSnapshot,runBody,measurementBody,completionBody,roundBody;
         try(var recipient=new com.miec.integration.contract.HttpRecipientFixture(recipientDb)) {
             try(var first=start(jar,directory,database,1,recipientEnvironment(recipient))) {
-                var plan=executablePlan(first);planId=plan.path("planId").asString();cycleId=plan.path("cycleId").asString();
-                var cycle=json.readTree(get(first.base(),"/api/cycles/"+cycleId).body());
-                var response=checkedPost(first,"/api/cycles/"+cycleId+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",cycle.path("version").asLong(),"expectedPlanVersion",plan.path("version").asLong(),"reason","ejecutar"),"restart-author",201);
-                assertEquals("APPLIED",response.path("state").asString());assertEquals(1,recipient.effects());
-                var currentCycle=json.readTree(get(first.base(),"/api/cycles/"+cycleId).body());
-                var finalized=checkedPost(first,"/api/plans/"+planId+"/execution/finish",java.util.Map.of("expectedVersion",response.path("version").asLong(),
-                        "expectedCycleVersion",currentCycle.path("version").asLong(),"reason","revisión técnica"),"restart-approver",200);
-                assertEquals("E08_VERIFICANDO",finalized.path("cycleState").asString());
-                measurementBody=postMeasurements(first,cycleId,planId,finalized.path("runId").asString());
-                completionBody=completeCycle(first,cycleId,planId,json.readTree(measurementBody));
-                roundBody=get(first.base(),"/api/cycles/"+cycleId+"/rounds").body();
-                measurementBody=get(first.base(),"/api/cycles/"+cycleId+"/plans/"+planId+"/measurements").body();
-                runBody=get(first.base(),"/api/plans/"+planId+"/execution").body();
+                var plan=executablePlan(first);firstPlan=plan.path("planId").asString();cycleId=plan.path("cycleId").asString();String root="/api/cycles/"+cycleId;
+                var measurements=executeAndMeasure(first,cycleId,plan);assertEquals(1,recipient.effects());
+                var concluded=concludeRound(first,cycleId,firstPlan,measurements,"COLLECT_EVIDENCE");var round=concluded.path("rounds").get(0);
+                oldSnapshot=round.path("snapshot").toString();
+                var request=checkedPost(first,root+"/rounds/"+round.path("roundId").asString()+"/continuations",java.util.Map.of(
+                    "expectedCycleVersion",concluded.path("cycle").path("version").asLong(),"expectedRoundVersion",round.path("version").asLong(),
+                    "decisionId",round.path("snapshot").path("decision").path("decisionId").asString(),"learningId",round.path("snapshot").path("learning").path("learningId").asString(),
+                    "mode","COLLECT_EVIDENCE","acknowledgeLimitations",true,"reason","new observations","baselines",java.util.List.of()),"restart-author",200);
+                requestId=request.path("requestId").asString();requestBody=request.toString();
+            }
+            awaitFileUnlock(directory.resolve("miec.mv.db"));
+            try(var second=start(jar,directory,database,2,recipientEnvironment(recipient))) {
+                String root="/api/cycles/"+cycleId;var restored=json.readTree(get(second.base(),root+"/rounds/continuations/"+requestId).body());
+                assertEquals(json.readTree(requestBody),restored);assertEquals("PENDING",restored.path("status").asString());assertEquals(1,recipient.effects());
+                var continued=checkedPost(second,root+"/rounds/continuations/"+requestId+"/approve",java.util.Map.of("expectedCycleVersion",restored.path("cycleVersion").asLong(),
+                    "expectedRoundVersion",restored.path("roundVersion").asLong(),"expectedRequestVersion",restored.path("version").asLong(),"acknowledgeLimitations",true,"reason","approve restored request"),"restart-approver",200);
+                assertEquals("E02_OBSERVANDO",continued.path("cycle").path("state").asString());assertEquals(json.readTree(oldSnapshot),continued.path("rounds").get(0).path("snapshot"));
+                var plan=nextExecutablePlan(second,cycleId);secondPlan=plan.path("planId").asString();assertNotEquals(firstPlan,secondPlan);
+                var measurements=executeAndMeasure(second,cycleId,plan);assertEquals(2,recipient.effects());
+                completionBody=completeCycle(second,cycleId,secondPlan,measurements);
+                roundBody=get(second.base(),root+"/rounds").body();assertEquals(2,json.readTree(roundBody).path("rounds").size());
+                assertEquals(json.readTree(oldSnapshot),json.readTree(roundBody).path("rounds").get(0).path("snapshot"));
+                measurementBody=get(second.base(),root+"/plans/"+secondPlan+"/measurements").body();runBody=get(second.base(),"/api/plans/"+secondPlan+"/execution").body();
             }
         }
         awaitFileUnlock(directory.resolve("miec.mv.db"));
         try(var reopened=new com.miec.integration.contract.HttpRecipientFixture(recipientDb)) {
-            assertEquals(1,reopened.effects());
-            try(var second=start(jar,directory,database,2,recipientEnvironment(reopened))) {
-                assertEquals(json.readTree(runBody),json.readTree(get(second.base(),"/api/plans/"+planId+"/execution").body()));
-                assertEquals(json.readTree(measurementBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/plans/"+planId+"/measurements").body()));
-                assertEquals(json.readTree(completionBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/completion").body()));
-                assertEquals(json.readTree(roundBody),json.readTree(get(second.base(),"/api/cycles/"+cycleId+"/rounds").body()));
+            assertEquals(2,reopened.effects());
+            try(var third=start(jar,directory,database,3,recipientEnvironment(reopened))) {
+                String root="/api/cycles/"+cycleId;
+                assertEquals(json.readTree(runBody),json.readTree(get(third.base(),"/api/plans/"+secondPlan+"/execution").body()));
+                assertEquals(json.readTree(measurementBody),json.readTree(get(third.base(),root+"/plans/"+secondPlan+"/measurements").body()));
+                assertEquals(json.readTree(completionBody),json.readTree(get(third.base(),root+"/completion").body()));
+                assertEquals(json.readTree(roundBody),json.readTree(get(third.base(),root+"/rounds").body()));
                 assertEquals("E14_FINALIZADO",json.readTree(completionBody).path("cycle").path("state").asString());
-                assertEquals("UNVERIFIED",json.readTree(measurementBody).path("measurements").get(0).path("qualityStatus").asString());
-                checkedPost(second,"/api/cycles/"+cycleId+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",0,"expectedPlanVersion",0,"reason","repetido"),"restart-author",409);
-                assertEquals(1,reopened.effects());
+                for(String plan:java.util.List.of(firstPlan,secondPlan))checkedPost(third,root+"/plans/"+plan+"/execution",java.util.Map.of("expectedCycleVersion",0,"expectedPlanVersion",0,"reason","duplicate"),"restart-author",409);
+                assertEquals(2,reopened.effects());
             }
         }
-        System.out.println("MVP-06 CIERRE REINICIO: E14, evaluación RS-05, decisión humana, aprendizaje y closed_at conservados; un solo efecto HTTP.");
+        System.out.println("MVP-07.8 REINICIO: tres JVM, solicitud pendiente recuperada, dos rondas completas, historial inmutable y dos efectos sin duplicados.");
+    }
+    /** Ejecuta y finaliza el plan aprobado y registra sus mediciones por HTTP. */
+    private tools.jackson.databind.JsonNode executeAndMeasure(Running running,String cycleId,tools.jackson.databind.JsonNode plan)throws Exception {
+        String planId=plan.path("planId").asString(),root="/api/cycles/"+cycleId;
+        var cycle=json.readTree(get(running.base(),root).body());
+        var run=checkedPost(running,root+"/plans/"+planId+"/execution",java.util.Map.of("expectedCycleVersion",cycle.path("version").asLong(),"expectedPlanVersion",plan.path("version").asLong(),"reason","execute current round"),"restart-author",201);
+        assertEquals("APPLIED",run.path("state").asString());cycle=json.readTree(get(running.base(),root).body());
+        checkedPost(running,"/api/plans/"+planId+"/execution/finish",java.util.Map.of("expectedVersion",run.path("version").asLong(),"expectedCycleVersion",cycle.path("version").asLong(),"reason","confirm execution"),"restart-approver",200);
+        return json.readTree(postMeasurements(running,cycleId,planId,run.path("runId").asString()));
+    }
+    /** Prepara un plan nuevo usando exclusivamente observaciones de la ronda sucesora. */
+    private tools.jackson.databind.JsonNode nextExecutablePlan(Running running,String cycle)throws Exception {
+        String root="/api/cycles/"+cycle;var context=json.readTree(get(running.base(),root+"/measurement").body());assertTrue(context.path("baselines").isEmpty());
+        var objective=context.path("objectives").get(0);var indicator=objective.path("criteria").get(0);var current=json.readTree(get(running.base(),root).body());
+        var baseline=checkedPost(running,root+"/measurement/baselines",java.util.Map.of("expectedVersion",current.path("version").asLong(),"indicatorId",indicator.path("indicatorId").asString(),"value",120,"unit","ms","source","new observation","measuredAt",java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS).toString(),"reason","new baseline"),"restart-author",200);
+        var observed=checkedPost(running,root+"/measurement/complete",java.util.Map.of("expectedVersion",baseline.path("cycle").path("version").asLong(),"reason","close new observation"),"restart-author",200);
+        var diagnosed=checkedPost(running,root+"/diagnosis",java.util.Map.of("expectedVersion",observed.path("cycle").path("version").asLong(),"evidenceId",observed.path("resourceId").asString(),"summary","new diagnosis","reason","diagnose"),"restart-author",200);
+        var spec=java.util.Map.of("adapterId","http-recipient-v1","adapterVersion","1","destinationId","restart-destination","mediaType","application/json","body","{\"change\":2}");
+        var plan=checkedPost(running,root+"/plans",java.util.Map.of("expectedVersion",diagnosed.path("cycle").path("version").asLong(),"objectiveId",objective.path("objectiveId").asString(),"expectedOutcomes","new result","rollbackStrategy","restore","actions",java.util.List.of(java.util.Map.of("actionType","PROCESS_EXECUTION","description","new action","execution",spec))),"restart-author",201);
+        var request=checkedPost(running,"/api/plans/"+plan.path("planId").asString()+"/authorization-requests",java.util.Map.of("expectedPlanVersion",plan.path("version").asLong(),"actionId",plan.path("actions").get(0).path("actionId").asString(),"validForSeconds",600),"restart-author",201);
+        checkedPost(running,"/api/authorizations/"+request.path("authorizationId").asString()+"/approve",java.util.Map.of("expectedVersion",request.path("version").asLong(),"reason","new approval"),"restart-approver",200);
+        return json.readTree(get(running.base(),"/api/plans/"+plan.path("planId").asString()).body());
     }
 
     /** Demuestra por HTTP el registro, revisión y cierre sin valorar el éxito del objetivo. */
@@ -340,21 +372,28 @@ class MvpLifecycleRestartIT {
     }
 
     /** Demuestra por HTTP evaluación y cierre administrativo sin elevar la suficiencia ni saltar F01. */
-    private String completeCycle(Running running,String cycle,String plan,tools.jackson.databind.JsonNode measurements)throws Exception {
+    private tools.jackson.databind.JsonNode concludeRound(Running running,String cycle,String plan,tools.jackson.databind.JsonNode measurements,String action)throws Exception {
         String root="/api/cycles/"+cycle;
         var admitted=checkedPost(running,root+"/plans/"+plan+"/evaluations",java.util.Map.of("expectedVersion",measurements.path("cycleVersion").asLong(),
                 "setId",measurements.path("set").path("setId").asString(),"reason","evaluar conjunto"),"restart-author",201);
         var evaluation=admitted.path("evaluation").path("report").path("result");assertEquals("INCONCLUSIVE",evaluation.path("classification").asString());
         var decision=checkedPost(running,root+"/decisions",java.util.Map.of("expectedVersion",admitted.path("completion").path("cycle").path("version").asLong(),
-                "evaluationId",evaluation.path("id").asString(),"action","CLOSE_CYCLE","acknowledgeLimitations",true,"reason","cierre administrativo inconcluso"),"restart-approver",200);
+                "evaluationId",evaluation.path("id").asString(),"action",action,"acknowledgeLimitations",true,"reason","cierre administrativo inconcluso"),"restart-approver",200);
         var learned=checkedPost(running,root+"/learning",java.util.Map.of("expectedVersion",decision.path("cycle").path("version").asLong(),
                 "decisionId",decision.path("decision").path("decisionId").asString(),"statement","No se acreditó mejora concluyente","conditions","laboratorio",
                 "limitations","Evidencia humana y ausencia de causalidad","reason","aprender"),"restart-author",200);
-        var registered=checkedPost(running,root+"/rounds/initial",java.util.Map.of("expectedCycleVersion",learned.path("cycle").path("version").asLong(),"reason","initial round"),"restart-author",200);
-        var round=registered.path("rounds").get(0);
+        var registered=json.readTree(get(running.base(),root+"/rounds").body());
+        if(registered.path("rounds").isEmpty())registered=checkedPost(running,root+"/rounds/initial",java.util.Map.of("expectedCycleVersion",learned.path("cycle").path("version").asLong(),"reason","initial round"),"restart-author",200);
+        var round=registered.path("rounds").get(registered.path("rounds").size()-1);
         var concluded=checkedPost(running,root+"/rounds/"+round.path("roundId").asString()+"/plan-completion",java.util.Map.of(
-                "expectedCycleVersion",registered.path("cycle").path("version").asLong(),"expectedRoundVersion",0,"reason","operational completion"),"restart-approver",200);
-        assertEquals("PLAN-COMPLETION-V1",concluded.path("rounds").get(0).path("conclusion").path("policyVersion").asString());
+                "expectedCycleVersion",registered.path("cycle").path("version").asLong(),"expectedRoundVersion",round.path("version").asLong(),"reason","operational completion"),"restart-approver",200);
+        assertEquals("PLAN-COMPLETION-V1",concluded.path("rounds").get(concluded.path("rounds").size()-1).path("conclusion").path("policyVersion").asString());
+        return concluded;
+    }
+    /** Completa aprendizaje y cierre de la ronda actual conservando la anterior. */
+    private String completeCycle(Running running,String cycle,String plan,tools.jackson.databind.JsonNode measurements)throws Exception {
+        String root="/api/cycles/"+cycle;var concluded=concludeRound(running,cycle,plan,measurements,"CLOSE_CYCLE");
+        var learned=json.readTree(get(running.base(),root+"/completion").body());
         var closed=checkedPost(running,root+"/close",java.util.Map.of("expectedVersion",concluded.path("cycle").path("version").asLong(),
                 "learningId",learned.path("learning").path("learningId").asString(),"summary","Ciclo concluido sin éxito acreditado","acknowledgeLimitations",true,"reason","cerrar"),"restart-approver",200);
         assertEquals("E14_FINALIZADO",closed.path("cycle").path("state").asString());assertFalse(closed.path("closure").path("closedAt").asString().isBlank());

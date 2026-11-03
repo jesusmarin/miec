@@ -12,6 +12,7 @@ import static com.miec.orchestration.LifecycleException.Kind.*;
 /** Transacciones breves para registrar contexto y concluir planes, sin llamadas externas. */
 @Service
 class RoundWorkflow {
+    private final RoundScope scope;
     private final InterventionSupport store;
     private final InterventionPlans plans;
     private final CycleCompletionWorkflow completion;
@@ -19,7 +20,8 @@ class RoundWorkflow {
     private final PlanActivityQuery activity;
     /** Comparte bloqueos sistema/ciclo/plan y comprobación técnica con el cierre. */
     RoundWorkflow(InterventionSupport store,InterventionPlans plans,CycleCompletionWorkflow completion,
-                  ClosedSetEvaluationStore evaluations,PlanActivityQuery activity){
+                  ClosedSetEvaluationStore evaluations,PlanActivityQuery activity,RoundScope scope){
+        this.scope=scope;
         this.store=store;this.plans=plans;this.completion=completion;this.evaluations=evaluations;this.activity=activity;
     }
     /** Registra solo la ronda inicial explícita, sin asignar históricos ni abrir continuidad. */
@@ -36,9 +38,8 @@ class RoundWorkflow {
         UUID id=UUID.randomUUID();UUID event=store.change(cycle,"E11_CONTINUANDO",EventType.ROUND_REGISTERED,actor,command.reason().trim(),"round:"+id);
         var time=eventTime(event);
         store.jdbc.update("INSERT INTO cycle_round VALUES (?,?,1,NULL,'ACTIVE',?,0,?,?,?,NULL,?)",id,cycleId,cycleId,actor,command.reason().trim(),time,event);
-        var snapshot=new Snapshot("ROUND-CONTEXT-V1",saved,view.decision(),view.learning());
-        store.jdbc.update("INSERT INTO round_context VALUES (?,?,?,?,?,?,?,?,?,? FORMAT JSON)",id,cycleId,input.planId(),input.runId(),input.setId(),
-            view.admission().evaluationId(),view.decision().decisionId(),view.learning().learningId(),locked.plan().fingerprint(),plans.json.writeValueAsString(snapshot));
+        scope.initialInputs(id,locked.plan(),saved);
+        scope.capture(id,locked.plan(),saved,view);
         return view(cycleId);
     }
     /** Conclusión atómica independiente del estado APPROVED y de la calidad de evidencia. */
@@ -68,12 +69,12 @@ class RoundWorkflow {
     public Context view(UUID cycle){return new Context(store.lifecycle.getCycle(cycle),rounds(cycle),activity.active(cycle));}
     /** Deserializa el snapshot persistido, sin invocar políticas ni usar el indicador actual. */
     private List<Round> rounds(UUID cycle){return store.jdbc.query("""
-        SELECT r.*,c.plan_id,c.plan_fingerprint,c.context_snapshot FROM cycle_round r
-        JOIN round_context c ON c.round_id=r.round_id WHERE r.cycle_id=? ORDER BY r.round_number
+        SELECT r.*,b.plan_id,c.plan_fingerprint,c.context_snapshot FROM cycle_round r
+        LEFT JOIN round_context c ON c.round_id=r.round_id LEFT JOIN round_plan_binding b ON b.round_id=r.round_id WHERE r.cycle_id=? ORDER BY r.round_number
         """,(rs,row)->new Round(rs.getObject("round_id",UUID.class),cycle,rs.getInt("round_number"),rs.getObject("previous_round_id",UUID.class),
             rs.getString("round_state"),rs.getLong("version"),rs.getString("registered_by"),rs.getString("reason"),rs.getTimestamp("registered_at").toInstant(),
             rs.getTimestamp("concluded_at")==null?null:rs.getTimestamp("concluded_at").toInstant(),
-            rs.getObject("plan_id",UUID.class),rs.getString("plan_fingerprint"),plans.json.readValue(rs.getString("context_snapshot"),Snapshot.class),conclusion(rs.getObject("plan_id",UUID.class))),cycle);}
+            rs.getObject("plan_id",UUID.class),rs.getString("plan_fingerprint"),rs.getString("context_snapshot")==null?null:plans.json.readValue(rs.getString("context_snapshot"),Snapshot.class),conclusion(rs.getObject("plan_id",UUID.class))),cycle);}
     /** Recupera únicamente un acta existente. */
     private Conclusion conclusion(UUID plan){return store.jdbc.query("SELECT * FROM plan_completion WHERE plan_id=?",(rs,row)->new Conclusion(rs.getString("policy_version"),
         rs.getString("recorded_by"),rs.getString("reason"),rs.getObject("event_id",UUID.class),rs.getTimestamp("completed_at").toInstant()),plan).stream().findFirst().orElse(null);}

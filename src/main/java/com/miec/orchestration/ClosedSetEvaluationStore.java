@@ -14,6 +14,7 @@ import static com.miec.orchestration.LifecycleException.Kind.*;
  */
 @Service
 class ClosedSetEvaluationStore {
+    private final PlanActivityQuery activity;
     private final InterventionSupport store;
     private final InterventionPlans plans;
     private final PlanExecutionStore runs;
@@ -23,13 +24,15 @@ class ClosedSetEvaluationStore {
     private final tools.jackson.databind.json.JsonMapper json;
     /** Configura persistencia y servicios existentes sin llamadas remotas. */
     ClosedSetEvaluationStore(InterventionSupport store,InterventionPlans plans,PlanExecutionStore runs,MeasurementQueries queries,
-                             EvaluationSnapshotLoader loader,DeterministicResultEvaluator evaluator,tools.jackson.databind.json.JsonMapper json) {
+                             EvaluationSnapshotLoader loader,DeterministicResultEvaluator evaluator,tools.jackson.databind.json.JsonMapper json,PlanActivityQuery activity) {
+        this.activity=activity;
         this.store=store;this.plans=plans;this.runs=runs;this.queries=queries;this.loader=loader;this.evaluator=evaluator;this.json=json;
     }
     /** Revalida contexto y guarda una conclusión por conjunto/políticas; una repetición devuelve la original. */
     @Transactional(propagation=Propagation.MANDATORY,timeout=10)
     public EvaluationContracts.Saved persist(UUID planId,UUID setId,long expectedCycleVersion,String actor) {
         actor=LifecycleService.actor(actor);var locked=plans.lock(planId);store.expect(locked.cycle(),expectedCycleVersion,"E08_VERIFICANDO");
+        activity.requireOpen(planId);
         var ids=store.jdbc.query("SELECT run_id FROM plan_execution WHERE plan_id=? FOR UPDATE",(rs,row)->rs.getObject(1,UUID.class),planId);
         if(ids.size()!=1)throw fail(CONFLICT,"EXECUTION_NOT_CONFIRMED","El plan no tiene ejecución confirmada");
         var run=runs.view(planId);

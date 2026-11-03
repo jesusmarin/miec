@@ -16,6 +16,7 @@ la entrega nueva registra su regresión en su propia sección de resultados.
 | MVP-06.1–06.3: políticas y conclusión interna | DeterministicResultEvaluator, MeasurementEvidencePolicy, ClosedSetEvaluationStore, V016 | DeterministicResultEvaluatorTest; ClosedSetEvaluationStoreTest; EvaluationApiTest; ClosedSetEvaluationRestartIT | [Evaluación](MVP-06-evaluation.md) |
 | MVP-06.4–06.6: admisión, decisión y cierre | CycleCompletionWorkflow, MvpAlternativePolicy, JdbcDecisionRecorder, V017 | CycleCompletionWorkflowTest; CycleCompletionApiTest; MvpLifecycleRestartIT | [Cierre](MVP-06-decision-closure.md) |
 | MVP-07.1–07.3: ronda inicial y conclusión operativa | RoundWorkflow, PlanActivityQuery, RoundController, V018 | RoundMigrationTest; RoundWorkflowTest; CycleCompletionApiTest; MvpLifecycleRestartIT | [Rondas](MVP-07-rounds.md) |
+| MVP-07.4–07.8: continuidad y conclusiones por ronda | RoundScope, RoundContinuationWorkflow, V019–V021 | RoundIsolationMigrationTest; RoundReceiptMigrationTest; RoundContinuationTest; CycleCompletionApiTest; MvpLifecycleRestartIT | [Continuidad](MVP-07-continuity.md) |
 | Identidad y API segura local | MvpSecurityConfiguration, InterventionIdentity, LifecycleApiErrors | PostMeasurementApiTest y pruebas HTTP de cada incremento | [Seguridad y CI](MVP-v01-security-ci.md) |
 | Regresión remota | .github/workflows/mvp-ci.yml | clean verify y MvpLifecycleRestartIT en Actions después del push | [Seguridad y CI](MVP-v01-security-ci.md) |
 
@@ -23,9 +24,8 @@ la entrega nueva registra su regresión en su propia sección de resultados.
 
 1. Recorrido administrativo E14 implementado y probado. La fuente humana conserva
    EV-0/EV-1 y no acredita conclusiones causales ni EV-2/EV-3 automáticamente.
-2. Ronda inicial y acta de conclusión disponibles en 07.1–07.3. Faltan aislamiento
-   por ronda, continuidad E02/E04 y rondas sucesivas con admisión/decisión propias;
-   E14 no se reabre. Ver [contrato y alcance](MVP-07-rounds.md).
+2. Ronda inicial, acta, aislamiento, continuidad E02/E04 y admisión/decisión por
+   ronda disponibles. E14 no se reabre. Ver [alcance y aceptación](MVP-07-continuity.md).
 3. P1: continuación parcial, suspensión, aborto operativo y permisos vencidos;
    fuentes verificables de medición más allá de la atestación humana del MVP.
 4. P1: PostgreSQL/migraciones, roles SQL e inmutabilidad frente a acceso directo.

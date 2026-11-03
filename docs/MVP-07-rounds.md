@@ -1,5 +1,9 @@
 # MVP-07 — Rondas, contrato y conclusión operativa
 
+Actualización: [07.4–07.8](MVP-07-continuity.md) implementa continuidad aprobada y
+contextos separados por ronda. Las secciones siguientes describen el alcance
+histórico de 07.1–07.3; sus pendientes de continuidad se desarrollan en esa guía.
+
 ## Entrega 07.1–07.3
 
 Base: commit 0d07ed5, CI 41718813491 terminado correctamente. Esta entrega

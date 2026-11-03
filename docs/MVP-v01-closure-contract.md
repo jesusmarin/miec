@@ -1,5 +1,10 @@
 # Contrato de cierre del MVP v01 — incremento 1
 
+Actualización MVP-07.4–07.8: [continuidad por rondas](MVP-07-continuity.md) incorpora
+E11 → E02/E04 con solicitud/aprobación, fuentes y permisos nuevos, y conclusiones
+independientes por ronda. La recuperación parcial y el endurecimiento productivo
+siguen pendientes; los diagnósticos originales posteriores son históricos.
+
 Actualización de implementación: [decisión, aprendizaje y cierre](MVP-06-decision-closure.md)
 habilita el recorrido administrativo hasta E14 con evaluación conservadora, sin
 declaración implícita de éxito. Las nuevas rondas y recuperación operativa ampliada

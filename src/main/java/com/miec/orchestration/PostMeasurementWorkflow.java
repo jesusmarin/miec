@@ -21,9 +21,11 @@ class PostMeasurementWorkflow {
     private final InterventionPlans plans;
     private final PlanExecutionStore runs;
     private final MeasurementQueries queries;
+    private final PlanActivityQuery activity;
 
     /** Comparte indicadores, unidades, identidad de plan y proyección conservadora IR-009. */
-    PostMeasurementWorkflow(InterventionSupport store,InterventionPlans plans,PlanExecutionStore runs,MeasurementQueries queries) {
+    PostMeasurementWorkflow(InterventionSupport store,InterventionPlans plans,PlanExecutionStore runs,MeasurementQueries queries,PlanActivityQuery activity) {
+        this.activity=activity;
         this.store=store;this.plans=plans;this.runs=runs;this.queries=queries;
     }
 
@@ -146,6 +148,7 @@ class PostMeasurementWorkflow {
         var locked=plans.lock(planId);
         if(!cycleId.equals(locked.cycle().cycleId())) throw fail(BAD_REQUEST,"PLAN_CYCLE_MISMATCH","El plan no pertenece al ciclo");
         store.expect(locked.cycle(),version,"E08_VERIFICANDO");
+        activity.requireOpen(planId);
         var ids=store.jdbc.query("SELECT run_id FROM plan_execution WHERE plan_id=? FOR UPDATE",(rs,row)->rs.getObject(1,UUID.class),planId);
         if(ids.size()!=1||!ids.getFirst().equals(runId)) throw fail(BAD_REQUEST,"RUN_CONTEXT_MISMATCH","La ejecución no pertenece al plan y ciclo");
         var run=runs.view(planId);

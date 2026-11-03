@@ -7,8 +7,9 @@ mediante coordinación durable y APIs de ejecución. Incluye finalización técn
 hacia E08 y reconciliación remota autorizada de efectos aplicados. Registra mediciones
 posteriores, revisiones humanas separadas y conjuntos fijos de comparación.
 Incluye evaluación operativa conservadora, decisión humana, aprendizaje y cierre
-administrativo hasta E14. Las nuevas rondas, las fuentes instrumentales verificadas
-y la preparación productiva siguen pendientes.
+administrativo hasta E14. Incluye continuidad aprobada E11 → E02/E04, nuevas fuentes,
+planes y permisos por ronda, con evaluación, decisión y aprendizaje separados.
+Las fuentes instrumentales verificadas y la preparación productiva siguen pendientes.
 El MVP v01 completo no se declara cerrado.
 
 - [Contrato de cierre y secuencia del MVP v01](docs/MVP-v01-closure-contract.md).
@@ -26,6 +27,7 @@ El MVP v01 completo no se declara cerrado.
 - [Decisión, aprendizaje y cierre E14, 06.4–06.6](docs/MVP-06-decision-closure.md).
 - [Diseño del siguiente incremento: nuevas rondas](docs/MVP-next-rounds-design.md).
 - [Ronda inicial y conclusión operativa: MVP-07.1–07.3](docs/MVP-07-rounds.md).
+- [Continuidad, dos rondas y aceptación: MVP-07.4–07.8](docs/MVP-07-continuity.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto
 la aplicación escucha en 127.0.0.1:8081 y mantiene apagada la consola H2. Swagger,
