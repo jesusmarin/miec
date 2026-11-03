@@ -12,6 +12,7 @@ public final class MeasurementContracts {
     /** Contenedor no instanciable. */
     private MeasurementContracts() { }
     /** Operadores exactos sobre valores decimales expresados en la misma unidad. */
+    @io.swagger.v3.oas.annotations.media.Schema(name="MeasurementComparisonOperator",enumAsRef=true)
     public enum Comparison { GT, GTE, LT, LTE, EQ }
     /** Condición verificable; el umbral no representa una medición de resultado. */
     public record Criterion(@NotBlank @Size(max=255) String name,@NotBlank @Size(max=50) String unit,

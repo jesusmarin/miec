@@ -1,5 +1,10 @@
 # Contrato de cierre del MVP v01 — incremento 1
 
+Actualización de implementación: [decisión, aprendizaje y cierre](MVP-06-decision-closure.md)
+habilita el recorrido administrativo hasta E14 con evaluación conservadora, sin
+declaración implícita de éxito. Las nuevas rondas y recuperación operativa ampliada
+siguen pendientes; las secciones originales conservan diagnóstico histórico.
+
 Actualización MVP-06.1–06.3: [políticas, evaluador puro y guardado interno](MVP-06-evaluation.md)
 implementados; quedan creación operativa/E08 → E09, decisión y cierre (06.4–06.6).
 Las secciones originales conservan diagnóstico histórico y contrato de destino.
