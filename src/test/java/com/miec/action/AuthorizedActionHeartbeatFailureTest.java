@@ -33,7 +33,7 @@ class AuthorizedActionHeartbeatFailureTest {
         when(attempts.startAuthorizedAttempt(any(),any())).thenReturn(started);
         try(var supervisor=new ExecutionHeartbeatSupervisor(activity);
             var pool=Executors.newSingleThreadExecutor()) {
-            var coordinator=new AuthorizedActionExecutionService(attempts,supervisor,mock(ExecutionEvidenceService.class));
+            var coordinator=new AuthorizedActionExecutionService(attempts,supervisor,mock(ExecutionEvidenceService.class),mock(ExecutionIncidentService.class));
             var future=pool.submit(()->coordinator.executeAuthorizedTracked(
                     new AuthorizedActionExecutionService.ExecutionCommand(started.plannedActionId(),started.planId(),
                             started.cycleId(),started.authorizationId(),"PROCESS_EXECUTION","test"),()-> {

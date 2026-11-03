@@ -148,6 +148,19 @@ public class PlannedActionJsonV01 {
         );
     }
 
+    /** Lee bytes de negocio aprobados sin recortar ni reformatear el cuerpo; ausencia conserva compatibilidad histórica. */
+    java.util.Optional<ExecutionRequest> executionRequest(UUID actionId,String document) {
+        for(var action:jsonMapper.readTree(document).path("actions")) {
+            if(!actionId.toString().equals(action.path("actionId").asString())) continue;
+            var definition=action.path("execution");
+            if(definition.isMissingNode()||definition.isNull()) return java.util.Optional.empty();
+            if(!"01".equals(definition.path("schemaVersion").asString())||!definition.path("body").isTextual())
+                throw new IllegalArgumentException("Definición ejecutable inválida");
+            return java.util.Optional.of(new ExecutionRequest(requiredText(definition,"destinationId"),requiredText(definition,"mediaType"),definition.path("body").asString()));
+        }
+        return java.util.Optional.empty();
+    }
+
     /**
      * Obtiene un texto obligatorio de un nodo JSON.
      *

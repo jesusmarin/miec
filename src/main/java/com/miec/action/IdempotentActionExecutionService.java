@@ -29,13 +29,13 @@ public class IdempotentActionExecutionService {
         }
         var request=Objects.requireNonNull(executor.request());
         var operation=operations.prepare(command,request);
-        return coordinator.executeProtected(command,operation.key(),owner->{
+        return coordinator.executeProtected(command,operation.key(),(owner,admission)->{
             var context=new IdempotentActionExecutor.Context(operation,owner,request);
             var lookup=Objects.requireNonNull(executor.lookup(context));
             return switch(lookup.status()) {
                 case APPLIED -> lookup.resultReference();
                 case UNKNOWN -> throw ExecutionRecoveryAccess.denied("El destinatario no confirma el resultado");
-                case NOT_FOUND -> ExecutionRecoveryAccess.text(executor.execute(context),500);
+                case NOT_FOUND -> ExecutionRecoveryAccess.text(admission.send(request,()->executor.beforeSend(context),()->executor.execute(context)),500);
             };
         });
     }

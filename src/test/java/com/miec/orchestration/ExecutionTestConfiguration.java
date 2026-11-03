@@ -20,8 +20,11 @@ public class ExecutionTestConfiguration {
         final ConcurrentHashMap<UUID,String> ledger=new ConcurrentHashMap<>();
         final AtomicInteger effects=new AtomicInteger();
         volatile Runnable beforeEffect=()->{};
+        volatile Runnable duringLookup=()->{};
         volatile Runnable afterEffect=()->{};
         volatile String binding="a".repeat(64);
+        /** Hook del servidor simulado para pruebas HTTP en otro paquete; nunca pertenece al catálogo productivo. */
+        public void onLookup(Runnable hook) { duringLookup=hook; }
         /** Mantiene una identidad distinta de los adaptadores productivos. */
         @Override public ExecutableActions.Descriptor descriptor() { return new ExecutableActions.Descriptor("test-recipient","1","test-destination",binding); }
         /** Captura sin producir efectos; las pruebas controlan lo que ocurre durante execute. */
@@ -31,6 +34,7 @@ public class ExecutionTestConfiguration {
                 @Override public ExecutionRequest request() { return request; }
                 /** Consulta sin incrementar el contador de efectos. */
                 @Override public Lookup lookup(Context context) {
+                    duringLookup.run();
                     String result=ledger.get(context.operation().key());
                     return new Lookup(result==null?Status.NOT_FOUND:Status.APPLIED,result);
                 }

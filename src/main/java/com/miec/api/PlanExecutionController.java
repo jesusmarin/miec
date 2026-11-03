@@ -24,6 +24,7 @@ import java.util.UUID;
 @ApiResponse(responseCode="403",description="Rol insuficiente")
 @ApiResponse(responseCode="404",description="Plan o coordinación inexistentes")
 @ApiResponse(responseCode="409",description="Versión, etapa, permiso, propiedad o definición incompatible")
+@ApiResponse(responseCode="500",description="Fallo interno; EXECUTION_AUDIT_UNAVAILABLE incluye solo fields.incidentId como correlación")
 public class PlanExecutionController {
     private final PlanExecutionApplicationService service;
     /** Recibe la fachada autenticada y no accede directamente a tablas o adaptadores. */
@@ -38,7 +39,7 @@ public class PlanExecutionController {
     }
 
     /** Consulta sin efectos y sin exigir que el permiso de ejecución siga vigente. */
-    @Operation(summary="Consultar coordinación y resultados IR-009",description="AUTHOR o APPROVER. requiresReview advierte vencimiento o contradicciones actuales aunque el estado persistido fuese APPLIED.")
+    @Operation(summary="Consultar coordinación y resultados IR-009",description="AUTHOR o APPROVER. requiresReview advierte vencimiento o contradicciones; incidents conserva códigos, fases e IDs, sin mensajes internos ni secretos.")
     @GetMapping("/plans/{planId}/execution")
     public Run get(@PathVariable UUID planId) { return service.get(planId); }
 

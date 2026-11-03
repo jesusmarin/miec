@@ -28,8 +28,9 @@ public final class PlanExecutionContracts {
      */
     public record Run(UUID runId,UUID planId,UUID cycleId,String state,String cycleState,long version,
                       long generation,Instant leaseExpiresAt,String createdBy,String updatedBy,
-                      Instant createdAt,Instant updatedAt,boolean requiresReview,List<Step> steps) {
+                      Instant createdAt,Instant updatedAt,boolean requiresReview,List<Step> steps,
+                      List<com.miec.action.ExecutionIncidentService.Incident> incidents) {
         /** Evita alterar el snapshot devuelto por el servidor. */
-        public Run { steps=List.copyOf(steps); }
+        public Run { steps=List.copyOf(steps);incidents=List.copyOf(incidents); }
     }
 }
