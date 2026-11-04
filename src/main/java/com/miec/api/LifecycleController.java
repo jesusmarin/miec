@@ -20,6 +20,27 @@ public class LifecycleController {
     /** Recibe los casos de uso sin acceder directamente a tablas o entidades. */
     public LifecycleController(LifecycleApplicationService service) { this.service = service; }
 
+    /** Descubre sistemas con resumen de ciclos y actividad, sin cargar un grafo de entidades. */
+    @io.swagger.v3.oas.annotations.Operation(summary="Lista sistemas y su actividad",description="AUTHOR o APPROVER. Orden createdAt/ID descendente; limit 1..100. q busca nombre literalmente sin distinguir mayusculas; status es el estado administrativo exacto. Cursor ligado a filtros; consistencia por pagina, no entre peticiones. Sin ciclos: actividad y ciclo reciente nulos.")
+    @GetMapping("/systems")
+    public com.miec.orchestration.LifecycleNavigationViews.SystemPage listSystems(
+            @io.swagger.v3.oas.annotations.Parameter(schema=@io.swagger.v3.oas.annotations.media.Schema(minimum="1",maximum="100",defaultValue="50")) @RequestParam(defaultValue="50") int limit,
+            @io.swagger.v3.oas.annotations.Parameter(description="nextCursor de la pagina anterior; conservar filtros",schema=@io.swagger.v3.oas.annotations.media.Schema(maxLength=512)) @RequestParam(required=false) String after,
+            @io.swagger.v3.oas.annotations.Parameter(description="Subcadena literal del nombre; % y _ no son comodines",schema=@io.swagger.v3.oas.annotations.media.Schema(maxLength=255)) @RequestParam(required=false) String q,
+            @io.swagger.v3.oas.annotations.Parameter(description="Estado administrativo del sistema; no es el estado F01 de un ciclo",schema=@io.swagger.v3.oas.annotations.media.Schema(maxLength=50)) @RequestParam(required=false) String status) {
+        return service.listSystems(limit, after, q, status);
+    }
+
+    /** Descubre ciclos del sistema manteniendo estado y version del contrato de detalle. */
+    @io.swagger.v3.oas.annotations.Operation(summary="Lista ciclos de un sistema",description="AUTHOR o APPROVER. Orden createdAt/ID descendente; limit 1..100. Sistema sin ciclos: pagina vacia; inexistente: 404. state admite codigos oficiales F01. Cursor ligado al sistema y al filtro; no habilita comandos ni bloquea escritores.")
+    @GetMapping("/systems/{systemId}/cycles")
+    public com.miec.orchestration.LifecycleNavigationViews.CyclePage listCycles(@PathVariable UUID systemId,
+            @io.swagger.v3.oas.annotations.Parameter(schema=@io.swagger.v3.oas.annotations.media.Schema(minimum="1",maximum="100",defaultValue="50")) @RequestParam(defaultValue="50") int limit,
+            @io.swagger.v3.oas.annotations.Parameter(description="nextCursor del mismo sistema y filtro",schema=@io.swagger.v3.oas.annotations.media.Schema(maxLength=512)) @RequestParam(required=false) String after,
+            @io.swagger.v3.oas.annotations.Parameter(schema=@io.swagger.v3.oas.annotations.media.Schema(implementation=com.miec.state.CycleState.class)) @RequestParam(required=false) String state) {
+        return service.listCycles(systemId, limit, after, state);
+    }
+
     /** Registra un sistema y publica la ubicación de su representación persistida. */
     @io.swagger.v3.oas.annotations.Operation(summary="Registra un sistema y publica la ubicación de su representación persistida.")
     @PostMapping(value="/systems",consumes="application/json")

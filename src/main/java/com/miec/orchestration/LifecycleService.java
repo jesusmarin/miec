@@ -212,7 +212,7 @@ public class LifecycleService {
     }
 
     /** Reconstruye un sistema desde sus columnas persistidas. */
-    private SystemView system(ResultSet rs, int row) throws SQLException {
+    SystemView system(ResultSet rs, int row) throws SQLException {
         return new SystemView(rs.getObject("system_id", UUID.class), rs.getString("name"), rs.getString("domain"),
                 rs.getString("description"), rs.getString("owner_reference"), rs.getString("status"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant());

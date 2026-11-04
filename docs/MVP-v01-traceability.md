@@ -21,6 +21,7 @@ la entrega nueva registra su regresión en su propia sección de resultados.
 | Regresión remota | .github/workflows/mvp-ci.yml | clean verify y MvpLifecycleRestartIT en Actions después del push | [Seguridad y CI](MVP-v01-security-ci.md) |
 | Persistencia PostgreSQL local | DatabaseSql, migraciones PostgreSQL V001–V021 y esquema experimental PetClinic | PostgresRoundContinuationIT; PostgresApplicationRestartIT; MiecVisitPostgresIT; MiecVisitPostgresRestartIT | [PostgreSQL](POSTGRESQL-local.md) |
 | MVP-08: primer uso local completo | JAR MIEC, SDK embebido en PetClinic, PostgreSQL y tools/pilot | LP-01 a LP-12 aprobados; siete JVM, dos rondas y E14; respaldo/restauración | [Acta técnica](MVP-08-local-project-acceptance.md) |
+| MVP-09: consulta y navegación inicial | LifecycleController, LifecycleApplicationService, LifecycleQueries, LifecycleNavigationViews, NavigationCursor | LifecycleNavigationQueriesTest, LifecycleNavigationApiTest, LifecycleNavigationPostgresIT y PostgresApplicationRestartIT; 923 de regresión y 23 del control final | [Navegación](MVP-09-navigation.md) |
 
 ## Estado y próximos pasos
 
