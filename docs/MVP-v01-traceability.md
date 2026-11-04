@@ -25,19 +25,24 @@ la entrega nueva registra su regresión en su propia sección de resultados.
 
 ## Estado y próximos pasos
 
+La [guía de recuperación operativa](LOCAL-operational-recovery.md) y su
+[plantilla de intervención](LOCAL-recovery-record-template.md) delimitan los casos
+admisibles y los bloqueos. Su documentación no implementa las capacidades P1 pendientes.
+
 1. Recorrido administrativo E14 implementado y probado. La fuente humana conserva
    EV-0/EV-1 y no acredita conclusiones causales ni EV-2/EV-3 automáticamente.
 2. Ronda inicial, acta, aislamiento, continuidad E02/E04 y admisión/decisión por
    ronda disponibles. E14 no se reabre. Ver [alcance y aceptación](MVP-07-continuity.md).
-3. P0: revisión humana del expediente MVP-08, integración de cambios, CI sobre el
-   commit resultante y entrega formal versionada del MVP v0.1. El piloto tiene
-   12/12 casos técnicos aprobados, no una firma humana o un tag de entrega.
+3. Entrega técnica `v0.1.0` integrada y etiquetada sobre `ae1cba1`, CI aprobado.
+   Pendiente: revisión y firma funcional humana. El piloto conserva sus 12/12
+   casos e identidades de artefactos, separados de la nueva entrega.
 4. P1: continuación parcial, suspensión, aborto operativo y permisos vencidos;
    fuentes verificables de medición más allá de la atestación humana del MVP.
 5. P1: PostgreSQL 14 y restauración local están acreditados; quedan evolución
    versionada del esquema PetClinic, roles SQL e inmutabilidad frente a acceso directo.
 6. P2: normalización restante de pruebas históricas, paginación, TLS, identidades,
-   política operativa de respaldos, monitoreo y despliegue. La restauración de un
+   automatización de respaldos/retención, monitoreo y despliegue. La política local
+   y su procedimiento están en la [guía operativa](LOCAL-installation-operations.md). La restauración de un
    checkpoint del piloto no acredita toda la operación productiva.
 
 La medición posterior queda separada de evaluación y decisión. Un conjunto cerrado

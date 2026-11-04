@@ -1,5 +1,8 @@
 # PostgreSQL 14 local — MIEC
 
+Guía operativa vigente: [instalación, credenciales y recuperación del par](LOCAL-installation-operations.md).
+Los resultados fechados de este documento conservan su carácter histórico.
+
 ## Alcance y configuración
 
 MIEC incorpora 21 migraciones SQL independientes en `src/main/resources/db/postgresql`
@@ -53,7 +56,8 @@ credenciales del destinatario son independientes; seguir [MVP-08](MVP-08-local-p
 Requieren JDK 21, dependencias Maven y SDK disponibles, PostgreSQL local y permiso
 `CREATE DATABASE`. Crean nombres aleatorios `miec_pg_*`, cierran sus JVM y eliminan
 exclusivamente sus bases. No escriben en `miec-v01` ni `petclinic`.
-No se ejecutan en la regresión predeterminada ni requieren secretos en CI.
+No se ejecutan en la regresión predeterminada. El workflow de entrega incorpora
+consultas y reinicio PostgreSQL con una base efímera y credenciales exclusivas de CI.
 
 **Estado: esquema instalado y control temporal local aprobado tras mantenimiento.**
 Se completaron tres diagnósticos independientes, los 13 casos PostgreSQL, la
@@ -108,13 +112,13 @@ intervención que requiera reiniciar Docker/WSL2 porque afecta otros servicios.
 
 # JAR real: HTTP, ciclo versionado, auditoría y dos JVM.
 .\mvnw.cmd '-DskipTests' package
-.\mvnw.cmd '-Dtest=PostgresApplicationRestartIT' '-Dmiec.postgres.test=true' '-Dmiec.mvp.jar=target/miec-prototype-0.0.1-SNAPSHOT.jar' test
+.\mvnw.cmd '-Dtest=PostgresApplicationRestartIT' '-Dmiec.postgres.test=true' '-Dmiec.mvp.jar=target/miec-prototype-0.1.0.jar' test
 
 # Regresión predeterminada H2, sin conexión PostgreSQL.
 .\mvnw.cmd verify
 
 # Control conjunto final: seis casos previos de reinicio y catorce PostgreSQL.
-.\mvnw.cmd '-Dtest=MvpLifecycleRestartIT,ClosedSetEvaluationRestartIT,PostgresRoundContinuationIT,PostgresApplicationRestartIT' '-Dmiec.postgres.test=true' '-Dmiec.mvp.jar=target/miec-prototype-0.0.1-SNAPSHOT.jar' test
+.\mvnw.cmd '-Dtest=MvpLifecycleRestartIT,ClosedSetEvaluationRestartIT,PostgresRoundContinuationIT,PostgresApplicationRestartIT' '-Dmiec.postgres.test=true' '-Dmiec.mvp.jar=target/miec-prototype-0.1.0.jar' test
 ```
 
 La instalación sobre la base del usuario es separada, explícita y sin limpieza.
@@ -150,6 +154,9 @@ después de configurar su secreto de API; ver la guía del destinatario
 El piloto [MVP-08](MVP-08-local-project.md) ya se ejecutó con ambos proyectos sobre
 PostgreSQL y datos propios: [12 casos aprobados, dos rondas y E14](MVP-08-local-project-acceptance.md).
 Incluyó respuesta perdida, concurrencia, reinicios y restauración del par en bases
-nuevas. El siguiente paso es la revisión humana y entrega formal versionada.
-Privilegios SQL mínimos, una política operativa de respaldos, TLS e identidades
-distribuidas requieren incrementos separados.
+nuevas. La entrega técnica `v0.1.0` ya está etiquetada y validada en CI;
+la aceptación funcional del responsable permanece pendiente.
+Privilegios SQL mínimos, TLS e identidades distribuidas requieren incrementos separados.
+La política y el procedimiento local de respaldos están en la
+[guía conjunta de instalación y operación](LOCAL-installation-operations.md);
+no equivalen a retención automatizada ni recuperación productiva certificada.
