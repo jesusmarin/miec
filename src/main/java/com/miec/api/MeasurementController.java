@@ -11,7 +11,11 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
-/** API del objetivo medible: todas las rutas requieren Basic y roles de aplicación. */
+/**
+ * API del objetivo medible: todas las rutas requieren Basic y roles de aplicación.
+ * Las líneas base manuales conservan HUMAN_REPORT/UNVERIFIED; registrar o cerrar
+ * su observación no acredita suficiencia instrumental ni causalidad.
+ */
 @RestController
 @RequestMapping("/api/cycles/{cycleId}/measurement")
 @Tag(name="Objetivos medibles",description="Objetivos y líneas base manuales; no ejecuta acciones ni acredita éxito.")
@@ -34,7 +38,7 @@ public class MeasurementController {
     @GetMapping
     public Context context(@PathVariable UUID cycleId) { return service.context(cycleId); }
     /** Conserva medición, evidencia y evento manteniendo E02. */
-    @Operation(summary="Registrar medición de línea base",description="AUTHOR. Unidad exacta, origen obligatorio y fecha del hecho no posterior a recepción. Reporte UNVERIFIED.")
+    @Operation(summary="Registrar medición de línea base",description="AUTHOR. Unidad exacta, origen obligatorio y fecha del hecho no posterior a recepción. Reporte HUMAN_REPORT/UNVERIFIED: indicar un instrumento en source no autentica esa fuente ni acredita suficiencia instrumental o causalidad.")
     @PostMapping(value="/baselines",consumes="application/json")
     public Preparation measure(@PathVariable UUID cycleId,@Valid @RequestBody Measure command) { return service.measure(cycleId,command); }
     /** Genera el acta del conjunto de mediciones y pasa E02 a E03. */

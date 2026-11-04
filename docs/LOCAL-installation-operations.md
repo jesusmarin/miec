@@ -397,6 +397,10 @@ Para clasificar antes de intervenir, seguir la
 (puede enviar), recover (hechos locales), reconcile (consulta autorizada) y finish.
 No todos los parciales tienen continuación disponible en el MVP.
 
+Para registrar y presentar mediciones, aplicar los
+[límites de calidad de evidencia humana](LOCAL-measurement-quality.md): una revisión
+aceptada o una ejecución APPLIED no acreditan suficiencia instrumental ni causalidad.
+
 | Señal | Acción |
 |---|---|
 | SQL no disponible / conexión rechazada | Verificar contenedor, 5532 y credencial por canal privado; no crear otra base vacía para ocultarlo |

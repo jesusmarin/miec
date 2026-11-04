@@ -4,7 +4,12 @@ import com.miec.evidence.*;
 import java.time.Instant;
 import java.util.*;
 
-/** SOURCE-QUALITY-V1: atestación humana no equivale a verificación instrumental ni EV-2. */
+/**
+ * SOURCE-QUALITY-V1: atestación humana no equivale a verificación instrumental ni EV-2.
+ * Solo admite muestras HUMAN_REPORT/UNVERIFIED. Una revisión aceptada no eleva su
+ * suficiencia; conserva EV-1 salvo ausencia de pares o rechazo seleccionado (EV-0).
+ * Ni la suficiencia ni una diferencia numérica constituyen una atribución causal.
+ */
 public final class MeasurementEvidencePolicy {
     /** Clasifica sin reloj y preserva limitaciones, revisiones ausentes y rechazos. */
     public EvidenceAssessment assess(ClosedSetEvaluation.Snapshot snapshot,Instant assessedAt) {

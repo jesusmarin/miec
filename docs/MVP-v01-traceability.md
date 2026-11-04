@@ -45,7 +45,9 @@ admisibles y los bloqueos. Su documentación no implementa las capacidades P1 pe
    y su procedimiento están en la [guía operativa](LOCAL-installation-operations.md). La restauración de un
    checkpoint del piloto no acredita toda la operación productiva.
 
-La medición posterior queda separada de evaluación y decisión. Un conjunto cerrado
-con muestras UNVERIFIED o revisiones rechazadas puede ser insuficiente; el evaluador
-deberá conservar esa conclusión. La revisión de evidencia técnica IR-009 no sustituye
-la revisión de calidad de mediciones y viceversa.
+La medición posterior queda separada de evaluación y decisión. Bajo SOURCE-QUALITY-V1,
+los pares humanos HUMAN_REPORT/UNVERIFIED conservan EV-1; un rechazo seleccionado
+o la ausencia de pares produce EV-0. En ambos casos corresponde RS-05, sin elevación
+por revisión humana, cierre de conjunto o ejecución APPLIED. La revisión de evidencia
+técnica IR-009 no sustituye la calidad de mediciones ni acredita causalidad.
+Ver [procedimiento y límites de calidad](LOCAL-measurement-quality.md).

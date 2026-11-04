@@ -1,5 +1,10 @@
 # MVP-06 — evaluación, pasos 06.1–06.3
 
+Guía operativa de interpretación:
+[evidencia humana, suficiencia y causalidad](LOCAL-measurement-quality.md).
+SOURCE-QUALITY-V1 conserva EV-1/EV-0 y RS-05 para los conjuntos humanos actuales,
+incluso si sus métricas cumplen el umbral o cambian favorablemente.
+
 Actualización: [06.4–06.6](MVP-06-decision-closure.md) incorpora creación operativa,
 decisión humana, aprendizaje y cierre. El resto conserva el alcance histórico de
 06.1–06.3; sus referencias a funciones pendientes se interpretan con esta actualización.
