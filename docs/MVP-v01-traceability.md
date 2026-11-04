@@ -25,6 +25,10 @@ la entrega nueva registra su regresión en su propia sección de resultados.
 
 ## Estado y próximos pasos
 
+La [guía de recuperación operativa](LOCAL-operational-recovery.md) y su
+[plantilla de intervención](LOCAL-recovery-record-template.md) delimitan los casos
+admisibles y los bloqueos. Su documentación no implementa las capacidades P1 pendientes.
+
 1. Recorrido administrativo E14 implementado y probado. La fuente humana conserva
    EV-0/EV-1 y no acredita conclusiones causales ni EV-2/EV-3 automáticamente.
 2. Ronda inicial, acta, aislamiento, continuidad E02/E04 y admisión/decisión por

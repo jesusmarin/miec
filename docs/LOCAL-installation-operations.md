@@ -392,13 +392,18 @@ Nunca hacer retroceder solo el ledger para repetir efectos ya realizados.
 
 ## 8. Incidentes y controles diarios
 
+Para clasificar antes de intervenir, seguir la
+[guía de recuperación operativa](LOCAL-operational-recovery.md). Distingue resume
+(puede enviar), recover (hechos locales), reconcile (consulta autorizada) y finish.
+No todos los parciales tienen continuación disponible en el MVP.
+
 | Señal | Acción |
 |---|---|
 | SQL no disponible / conexión rechazada | Verificar contenedor, 5532 y credencial por canal privado; no crear otra base vacía para ocultarlo |
 | API MIEC 401 / 403 | Revisar identidad habilitada, clave y rol; la clave SQL o la API key del destinatario no sustituyen Basic |
 | PetClinic 401 | Revisar API key en ambos extremos y reiniciar con el entorno correcto; no reenviar con otra operationKey |
 | 409 de versión / autorización vencida | Volver a leer el recurso y seguir el flujo de autorización vigente; no modificar la versión por SQL |
-| Timeout / UNKNOWN | Conservar el intento; consulta/reconciliación autorizada según [recuperación](MVP-03-finalization-recovery.md), sin presumir NO_EFFECT |
+| Timeout / UNKNOWN | Conservar el intento y clasificar según [recuperación operativa](LOCAL-operational-recovery.md), sin presumir NO_EFFECT |
 | Flyway / checksum / esquema incompatible | Detener el avance, guardar logs y usar artefacto compatible; no ejecutar repair/clean ni editar historial como solución genérica |
 | Reloj retrocede | Suspender nuevos envíos y repetir diagnóstico temporal; no desactivar controles de vigencia |
 | Hash distinto / restore incompleto | No iniciar el par restaurado; conservar diagnóstico y seleccionar un respaldo íntegro |

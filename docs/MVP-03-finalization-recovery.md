@@ -1,5 +1,10 @@
 # MVP-03 — pasos 5–8: finalización y recuperación verificable
 
+Procedimiento vigente para el operador:
+[recuperación delimitada del MVP local](LOCAL-operational-recovery.md), con matriz
+de decisión, vigencia de permisos, puntos de parada y acta de intervención.
+Las secciones siguientes conservan el alcance histórico de este incremento.
+
 Actualización posterior: [MVP-05](MVP-05-post-measurements.md) añade mediciones
 posteriores, revisiones humanas y conjuntos fijos en E08. Esta guía conserva el
 alcance y los resultados históricos de finalización/recuperación.
