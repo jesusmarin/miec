@@ -186,4 +186,6 @@ disponibles para revisión del operador.
 
 Ante cualquier fallo, conservar el expediente FALLIDO y el estado alcanzado.
 No convertir casos pendientes/bloqueados en aprobados ni editar SQL para avanzar.
-La aceptación formal y el versionado de entrega son el siguiente incremento.
+La entrega técnica posterior es `v0.1.0`; la aceptación funcional permanece
+pendiente de firma. Para operación ordinaria y recuperación fuera del harness,
+seguir la [guía conjunta](LOCAL-installation-operations.md).

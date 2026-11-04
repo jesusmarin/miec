@@ -10,11 +10,11 @@ Incluye evaluación operativa conservadora, decisión humana, aprendizaje y cier
 administrativo hasta E14. Incluye continuidad aprobada E11 → E02/E04, nuevas fuentes,
 planes y permisos por ronda, con evaluación, decisión y aprendizaje separados.
 Las fuentes instrumentales verificadas y la preparación productiva siguen pendientes.
-El MVP v01 completo no se declara cerrado.
+La entrega técnica local v0.1.0 está etiquetada; la aceptación funcional y la preparación productiva permanecen separadas.
 
 El primer uso local con PetClinic y PostgreSQL ya tiene aceptación técnica:
 12 casos aprobados, dos rondas hasta E14, respuesta perdida, concurrencia,
-reinicios y restauración del par de bases. La entrega formal versionada sigue pendiente.
+reinicios y restauración del par de bases. La entrega técnica `v0.1.0` está publicada; la firma funcional sigue pendiente.
 
 - [Contrato de cierre y secuencia del MVP v01](docs/MVP-v01-closure-contract.md).
 - [Seguridad uniforme, configuración y CI](docs/MVP-v01-security-ci.md).
@@ -35,6 +35,7 @@ reinicios y restauración del par de bases. La entrega formal versionada sigue p
 - [Contrato del primer destinatario local: MVP-08](docs/MVP-08-local-project.md).
 - [Resultado y evidencia del piloto completo: 12/12](docs/MVP-08-local-project-acceptance.md).
 - [Consulta y navegación inicial: MVP-09](docs/MVP-09-navigation.md).
+- [Instalación y operación conjunta: credenciales, arranque y respaldo/restauración](docs/LOCAL-installation-operations.md).
 - [Instalación y validación de PostgreSQL 14 local](docs/POSTGRESQL-local.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto
@@ -57,4 +58,4 @@ incrementos 1 y 2.
 
 ## Entrega MVP v0.1.0
 
-Alcance local, instalaci?n, validaciones y limitaciones: [acta t?cnica de entrega](docs/MVP-v0.1.0-release.md).
+Alcance local, instalación, validaciones y limitaciones: [acta técnica de entrega](docs/MVP-v0.1.0-release.md).
