@@ -1,5 +1,10 @@
 # MVP-05 — mediciones posteriores, contrato POST-MEASURE-01
 
+Interpretación operativa vigente:
+[calidad de mediciones humanas y límites de causalidad](LOCAL-measurement-quality.md).
+Una revisión aceptada conserva HUMAN_REPORT/UNVERIFIED; no acredita suficiencia
+instrumental. Los apartados siguientes mantienen el alcance histórico del incremento.
+
 ## 05.1 Contrato y alcance
 
 Secuencia: 05.1 contrato; 05.2 V015 y conservación histórica; 05.3 registro

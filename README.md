@@ -37,6 +37,7 @@ reinicios y restauración del par de bases. La entrega técnica `v0.1.0` está p
 - [Consulta y navegación inicial: MVP-09](docs/MVP-09-navigation.md).
 - [Instalación y operación conjunta: credenciales, arranque y respaldo/restauración](docs/LOCAL-installation-operations.md).
 - [Recuperación operativa: parciales, permisos vencidos e incertidumbre](docs/LOCAL-operational-recovery.md).
+- [Calidad de mediciones: límites de evidencia humana, suficiencia y causalidad](docs/LOCAL-measurement-quality.md).
 - [Instalación y validación de PostgreSQL 14 local](docs/POSTGRESQL-local.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto

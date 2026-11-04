@@ -12,7 +12,11 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
-/** Consulta de conclusiones inmutables; no recibe muestras, EV, políticas o instrucciones del cliente. */
+/**
+ * Consulta y admisión de conclusiones inmutables; no recibe muestras, EV, políticas o instrucciones del cliente.
+ * SOURCE-QUALITY-V1 conserva RS-05 para conjuntos humanos, incluso con cambios
+ * numéricos favorables o revisiones aceptadas. La comparación no atribuye causalidad.
+ */
 @RestController
 @RequestMapping("/api")
 @Tag(name="Evaluaciones",description="Conclusión inmutable y admisión operativa E08 → E09; no acredita éxito ni modifica F01.")
@@ -35,7 +39,7 @@ public class EvaluationController {
     @GetMapping("/measurement-sets/{setId}/evaluations")
     public List<Saved> forSet(@PathVariable UUID setId){return service.forSet(setId);}
     /** Confirma conclusión, recibo, evento y transición antes de responder con su recurso durable. */
-    @Operation(summary="Registrar evaluación y avanzar a E09",description="AUTHOR. Versión del ciclo, set cerrado y motivo. Políticas del servidor; sin EV o clasificación del cliente. La insuficiencia conserva RS-05. Ante timeout consultar el recurso; una repetición con versión antigua devuelve 409.")
+    @Operation(summary="Registrar evaluación y avanzar a E09",description="AUTHOR. Versión del ciclo, set cerrado y motivo. Políticas del servidor; sin EV o clasificación del cliente. La insuficiencia conserva RS-05. SOURCE-QUALITY-V1 asigna EV-1 a pares HUMAN_REPORT/UNVERIFIED no rechazados y EV-0 si hay rechazo o no hay pares; ninguno acredita suficiencia instrumental. Cambios numéricos, revisión humana, ejecución APPLIED o avance a E09 no demuestran causalidad. Ante timeout consultar el recurso; una repetición con versión antigua devuelve 409.")
     @ApiResponse(responseCode="201",description="Evaluación admitida y transición E08 → E09 confirmadas")
     @PostMapping(value="/cycles/{cycleId}/plans/{planId}/evaluations",consumes="application/json")
     public org.springframework.http.ResponseEntity<CycleCompletionContracts.EvaluationCreated> create(@PathVariable UUID cycleId,@PathVariable UUID planId,@Valid @RequestBody CycleCompletionContracts.Evaluate command){

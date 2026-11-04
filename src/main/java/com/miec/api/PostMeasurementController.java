@@ -10,7 +10,11 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
-/** API de hechos posteriores y revisión humana; no recibe identidad, nivel EV ni resultados de evaluación. */
+/**
+ * API de hechos posteriores y revisión humana; no recibe identidad, nivel EV ni resultados de evaluación.
+ * Aceptar una revisión o cerrar el conjunto conserva la evidencia humana UNVERIFIED:
+ * no transforma una comparación antes/después en suficiencia instrumental o causalidad.
+ */
 @RestController
 @RequestMapping("/api/cycles/{cycleId}/plans/{planId}/measurements")
 @Tag(name="Mediciones posteriores",description="POST-MEASURE-01: registro, revisión humana y conjunto fijo; no acredita éxito ni cambia E08 a E09.")
@@ -30,15 +34,15 @@ public class PostMeasurementController {
     @GetMapping
     public PostContext get(@PathVariable UUID cycleId,@PathVariable UUID planId) {return service.posts(cycleId,planId);}
     /** Guarda medición y evidencia con auditoría y versión en una sola transacción. */
-    @Operation(summary="Registrar medición posterior",description="AUTHOR. E08 y run APPLIED sin contradicciones. measurement reutiliza Measure: expectedVersion del ciclo, indicatorId, value decimal (15 enteros/5 decimales), unit, source, measuredAt y reason. Añade runId y method. Fecha UTC con precisión máxima de microsegundos, entre finalización y recepción. Devuelve 200 con el contexto actualizado; no evalúa.")
+    @Operation(summary="Registrar medición posterior",description="AUTHOR. E08 y run APPLIED sin contradicciones. measurement reutiliza Measure: expectedVersion del ciclo, indicatorId, value decimal (15 enteros/5 decimales), unit, source, measuredAt y reason. Añade runId y method. Fecha UTC con precisión máxima de microsegundos, entre finalización y recepción. Devuelve 200 con el contexto actualizado; no evalúa. Conserva HUMAN_REPORT/UNVERIFIED aunque source cite un sensor, archivo o consulta SQL: no acredita autenticación instrumental ni causalidad.")
     @PostMapping(consumes="application/json")
     public PostContext record(@PathVariable UUID cycleId,@PathVariable UUID planId,@Valid @RequestBody PostMeasure command) {return service.recordPost(cycleId,planId,command);}
     /** Conserva una revisión humana atribuida sin modificar la evidencia original. */
-    @Operation(summary="Revisar evidencia de una medición",description="APPROVER distinto del autor. expectedVersion del ciclo; runId/evidenceId del contexto. Verdict ACCEPTED_WITH_LIMITATIONS o REJECTED, método, referencia de procedimiento, limitaciones y motivo obligatorios. Una revisión por evidencia/run, sin nivel EV automático ni verificación instrumental implícita.")
+    @Operation(summary="Revisar evidencia de una medición",description="APPROVER distinto del autor. expectedVersion del ciclo; runId/evidenceId del contexto. Verdict ACCEPTED_WITH_LIMITATIONS o REJECTED, método, referencia de procedimiento, limitaciones y motivo obligatorios. Una revisión por evidencia/run, sin nivel EV automático ni verificación instrumental implícita. ACCEPTED_WITH_LIMITATIONS no cambia UNVERIFIED ni acredita causalidad; SOURCE-QUALITY-V1 mantiene EV-1 para pares humanos no rechazados.")
     @PostMapping(value="/reviews",consumes="application/json")
     public PostContext review(@PathVariable UUID cycleId,@PathVariable UUID planId,@Valid @RequestBody ReviewMeasure command) {return service.reviewPost(cycleId,planId,command);}
     /** Cierra muestras y revisiones elegidas sin inferir evidencia suficiente o mejora. */
-    @Operation(summary="Cerrar conjunto explícito para comparación futura",description="APPROVER. expectedVersion del ciclo, runId, method, ventanas inclusivas baselineFrom/To y postFrom/To, pairs con indicatorId/baselineId/measurementId y reason. Exactamente un par por indicador. EXPLICIT_PAIR_V1 no agrega valores. Conserva revisión ausente o rechazada como limitación; bloquea nuevos datos/revisiones del run. Permanece en E08; no evalúa ni decide.")
+    @Operation(summary="Cerrar conjunto explícito para comparación futura",description="APPROVER. expectedVersion del ciclo, runId, method, ventanas inclusivas baselineFrom/To y postFrom/To, pairs con indicatorId/baselineId/measurementId y reason. Exactamente un par por indicador. EXPLICIT_PAIR_V1 no agrega valores. Conserva revisión ausente o rechazada como limitación; bloquea nuevos datos/revisiones del run. Permanece en E08; no evalúa ni decide. Fijar las muestras no aumenta su suficiencia ni demuestra causalidad.")
     @PostMapping(value="/seal",consumes="application/json")
     public PostContext seal(@PathVariable UUID cycleId,@PathVariable UUID planId,@Valid @RequestBody SealPost command) {return service.sealPost(cycleId,planId,command);}
 }
