@@ -113,11 +113,11 @@ class InterventionWorkflow {
             actions.add(new PlanAction(UUID.randomUUID(),action.actionType(),action.description().trim(),definition));
         }
         String document=plans.json.writeValueAsString(Map.of("schemaVersion","01","actions",actions));
-        store.jdbc.update("""
+        store.jdbc.update(store.sql.json("""
                 INSERT INTO intervention_plan(plan_id,cycle_id,objective_ids,actions,expected_outcomes,rollback_strategy,
                     authorization_requirements,status,version_id,created_at,created_by,revision,diagnosis_id)
                 VALUES (?,?,? FORMAT JSON,? FORMAT JSON,?,?,'EXECUTE_ACTION','PROPOSED','MVP-02:1',?,?,0,?)
-                """,id,cycleId,plans.json.writeValueAsString(List.of(command.objectiveId())),document,
+                """),id,cycleId,plans.json.writeValueAsString(List.of(command.objectiveId())),document,
                 command.expectedOutcomes().trim(),command.rollbackStrategy().trim(),Timestamp.from(store.lifecycle.now()),actor,diagnoses.getFirst());
         scope.bind(cycleId,id);
         store.change(cycle,cycle.state(),EventType.PLAN_PROPOSED,actor,"Plan de intervención propuesto","plan:"+id);

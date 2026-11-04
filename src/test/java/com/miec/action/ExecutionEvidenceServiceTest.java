@@ -18,6 +18,22 @@ class ExecutionEvidenceServiceTest {
     @Autowired private ExecutionAttemptService attempts;
     @Autowired private ExecutionEvidenceService evidence;
 
+    /** La observacion interna usa una fecha de recepcion unica, deduplica y no acredita al destinatario. */
+    @Test @DisplayName("Reporte interno usa reloj de base y conserva fecha e identidad al deduplicar")
+    void shouldDateInternalObservationWithDatabaseClock() {
+        var fixture=ExecutionRecoveryTestSupport.fixture(jdbc);
+        var attempt=attempts.startAuthorizedAttempt(attempts.createAttempt(fixture.attemptCommand()).executionId(),"PROCESS_EXECUTION");
+        UUID id=UUID.randomUUID();
+        var first=evidence.reportObservation(id,attempt.ownership(),EFFECT_APPLIED,"internal-receipt");
+        assertEquals(first.receivedAt(),first.occurredAt());
+        assertEquals(ExecutionEvidenceService.Source.EXECUTOR_REPORT,first.source());
+        assertNull(first.authorizationId());
+        assertEquals(first,evidence.reportObservation(id,attempt.ownership(),EFFECT_APPLIED,"internal-receipt"));
+        assertEquals(1,evidence.findByAttempt(attempt.executionId()).size());
+        assertThrows(ExecutionAttemptService.AttemptDeniedException.class,
+                () -> evidence.reportObservation(id,attempt.ownership(),EFFECT_UNKNOWN,"internal-receipt"));
+    }
+
     /** Un propietario vencido reporta sin renovar ni cambiar las columnas del intento. */
     @Test @DisplayName("Reporte tardío conserva intento y deduplica el mismo contenido")
     void shouldAcceptLateReportIdempotently() {

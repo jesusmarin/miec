@@ -12,6 +12,12 @@ import java.util.UUID;
 
 /** Fixtures medibles preparados mediante servicios reales, sin cambiar estados por SQL. */
 final class PostMeasurementTestSupport {
+    private static final ThreadLocal<java.util.function.Supplier<Instant>> CLOCK =
+            ThreadLocal.withInitial(() -> Instant::now);
+    /** Alinea exclusivamente el cliente de laboratorio con el reloj del destinatario de sus fechas. */
+    static void observationClock(java.util.function.Supplier<Instant> clock) { CLOCK.set(clock); }
+    /** Restaura el reloj del fixture sin afectar otros hilos o servicios productivos. */
+    static void resetObservationClock() { CLOCK.remove(); }
     /** Contenedor de utilidades exclusivas de test. */
     private PostMeasurementTestSupport() { }
     /** Identidades confiables simuladas para probar fachadas sin cabeceras de cliente. */
@@ -47,7 +53,7 @@ final class PostMeasurementTestSupport {
         authenticate("AUTHOR");return new Fixture(cycle.cycleId(),plan.planId(),run.runId(),indicator,baseline.resourceId(),before);
     }
     /** Fecha de cliente representable exactamente por TIMESTAMP(6). */
-    static Instant now() { return Instant.now().truncatedTo(ChronoUnit.MICROS); }
+    static Instant now() { return CLOCK.get().get().truncatedTo(ChronoUnit.MICROS); }
     /** Comando posterior reutiliza el contrato Measure sin reinterpretar unidades. */
     static MeasurementContracts.PostMeasure command(Fixture fixture,long version) {
         return new MeasurementContracts.PostMeasure(fixture.runId(),new MeasurementContracts.Measure(version,fixture.indicatorId(),new BigDecimal("90.12345"),

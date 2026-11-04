@@ -59,7 +59,7 @@ public class ExecutionActivityService {
     /** Devuelve la frecuencia del supervisor. */
     public Duration heartbeatInterval() { return heartbeatInterval; }
 
-    /** Lee el reloj de pared del motor H2, incluso después de esperar un bloqueo. */
+    /** Lee el reloj de pared del motor, incluso después de esperar un bloqueo; no usa inicio de transacción. */
     Instant databaseNow() {
         return Objects.requireNonNull(jdbc.queryForObject("SELECT miec_wall_clock()",
                 (rs, row) -> rs.getTimestamp(1).toInstant()));
@@ -68,7 +68,7 @@ public class ExecutionActivityService {
     /** Reserva una generación global; un rollback puede dejar huecos. */
     long nextToken() {
         return Objects.requireNonNull(jdbc.queryForObject(
-                "SELECT NEXT VALUE FOR execution_fencing_sequence", Long.class));
+                "SELECT nextval('execution_fencing_sequence')", Long.class));
     }
 
     /**

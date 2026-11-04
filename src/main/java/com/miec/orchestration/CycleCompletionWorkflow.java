@@ -92,10 +92,10 @@ class CycleCompletionWorkflow {
         store.lifecycle.validate(command);var context=lockChoice(cycleId,command.decisionId(),command.expectedVersion(),"E10_APRENDIENDO");
         UUID id=UUID.randomUUID();UUID event=store.change(context.locked().cycle(),"E11_CONTINUANDO",EventType.LEARNING_RECORDED,actor,command.reason().trim(),"learning:"+id);
         var evaluation=context.evaluation().report().result();
-        store.jdbc.update("""
+        store.jdbc.update(store.sql.json("""
                 INSERT INTO learning(learning_id,cycle_id,statement,supporting_evidence_ids,confidence_level,applicable_conditions,status,created_at,decision_id,recorded_by,limitations,event_id)
                 VALUES (?,?,?,? FORMAT JSON,?,?,'RECORDED',?,?,?,?,?)
-                """,id,cycleId,command.statement().trim(),plans.json.writeValueAsString(evaluation.evidenceAssessment().evidenceIds()),evaluation.confidenceLevel().name(),
+                """),id,cycleId,command.statement().trim(),plans.json.writeValueAsString(evaluation.evidenceAssessment().evidenceIds()),evaluation.confidenceLevel().name(),
                 command.conditions().trim(),stamp(eventTime(event)),command.decisionId(),actor,command.limitations().trim(),event);
         var result=view(cycleId);var round=scope.current(cycleId);
         if(round!=null)scope.capture(round,context.locked().plan(),context.evaluation(),result);

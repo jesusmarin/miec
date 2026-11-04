@@ -52,7 +52,7 @@ class RoundScope {
     /** Congela el contexto al terminar aprendizaje; no sustituye una instantánea previa. */
     void capture(UUID round,InterventionViews.Plan plan,EvaluationContracts.Saved saved,CycleCompletionContracts.View view){
         var input=saved.inputs();var snapshot=new RoundContracts.Snapshot("ROUND-CONTEXT-V1",saved,view.decision(),view.learning());
-        store.jdbc.update("INSERT INTO round_context VALUES (?,?,?,?,?,?,?,?,?,? FORMAT JSON)",round,input.cycleId(),plan.planId(),input.runId(),input.setId(),
+        store.jdbc.update(store.sql.json("INSERT INTO round_context VALUES (?,?,?,?,?,?,?,?,?,? FORMAT JSON)"),round,input.cycleId(),plan.planId(),input.runId(),input.setId(),
             view.admission().evaluationId(),view.decision().decisionId(),view.learning().learningId(),plan.fingerprint(),json.writeValueAsString(snapshot));
     }
     /** Enlaza solamente las muestras y el diagnóstico acreditados por el contexto inicial. */

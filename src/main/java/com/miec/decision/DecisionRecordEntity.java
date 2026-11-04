@@ -89,6 +89,7 @@ public class DecisionRecordEntity {
             name = "alternatives_considered",
             columnDefinition = "JSON"
     )
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     private String alternativesConsidered;
 
     /** Justificación de la selección. */
@@ -103,6 +104,7 @@ public class DecisionRecordEntity {
             name = "risk_constraints",
             columnDefinition = "JSON"
     )
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     private String riskConstraints;
 
     /** Estado informativo de autorización. */
@@ -114,6 +116,7 @@ public class DecisionRecordEntity {
             name = "proposed_transition",
             columnDefinition = "JSON"
     )
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     private String proposedTransition;
 
     /** Referencia opcional a una transición efectuada. */
