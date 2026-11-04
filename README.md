@@ -48,9 +48,13 @@ Las pruebas requieren el SDK hermano en la revisión fijada por CI. Ejecutar:
 ```powershell
 .\mvnw.cmd -f ../miec-recipient-sdk/pom.xml clean install
 .\mvnw.cmd clean verify
-.\mvnw.cmd '-Dtest=MvpLifecycleRestartIT,ClosedSetEvaluationRestartIT' '-Dmiec.mvp.jar=target/miec-prototype-0.0.1-SNAPSHOT.jar' test
+.\mvnw.cmd '-Dtest=MvpLifecycleRestartIT,ClosedSetEvaluationRestartIT' '-Dmiec.mvp.jar=target/miec-prototype-0.1.0.jar' test
 ```
 
 El workflow de GitHub Actions compila la dependencia y realiza estas validaciones.
 Las pruebas usan bases aisladas; no requieren PetClinic ni PostgreSQL para los
 incrementos 1 y 2.
+
+## Entrega MVP v0.1.0
+
+Alcance local, instalaci?n, validaciones y limitaciones: [acta t?cnica de entrega](docs/MVP-v0.1.0-release.md).
