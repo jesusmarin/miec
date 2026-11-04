@@ -33,11 +33,11 @@ class RoundContinuationWorkflow {
         var round=eligible(cycle,roundId,command.expectedRoundVersion());
         validateIntent(round,command);validateInputs(cycle,round,command);
         UUID id=UUID.randomUUID();UUID event=store.change(locked,"E11_CONTINUANDO",EventType.ROUND_CONTINUATION_REQUESTED,actor,command.reason().trim(),"round-continuation:"+id);
-        store.jdbc.update("""
+        store.jdbc.update(store.sql.json("""
             INSERT INTO round_continuation(request_id,cycle_id,round_id,decision_id,learning_id,mode,request_status,version,cycle_version,round_version,
                 requested_by,reason,policy_version,input_snapshot,requested_at,event_id)
             VALUES (?,?,?,?,?,?,'PENDING',0,?,?,?,?,?,? FORMAT JSON,?,?)
-            """,id,cycle,roundId,command.decisionId(),command.learningId(),command.mode().name(),command.expectedCycleVersion()+1,round.version(),actor,
+            """),id,cycle,roundId,command.decisionId(),command.learningId(),command.mode().name(),command.expectedCycleVersion()+1,round.version(),actor,
             command.reason().trim(),POLICY,plans.json.writeValueAsString(command),time(event),event);
         return get(cycle,id);
     }

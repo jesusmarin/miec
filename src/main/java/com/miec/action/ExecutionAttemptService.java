@@ -385,7 +385,7 @@ public class ExecutionAttemptService {
                 command.planId(),
                 command.plannedActionId(),
                 EXECUTE_SCOPE,
-                Instant.now()
+                activity.databaseNow()
         );
 
         return authorizations.evaluate(
@@ -824,7 +824,7 @@ public class ExecutionAttemptService {
                             current.planId(),
                             current.plannedActionId(),
                             EXECUTE_SCOPE,
-                            Instant.now()
+                            activity.databaseNow()
                     )
             );
             if (!authorized.allowed()) {

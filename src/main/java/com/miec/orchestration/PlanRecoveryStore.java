@@ -47,7 +47,7 @@ class PlanRecoveryStore {
         eligible(locked,run,command.actionId());
         if(store.jdbc.queryForObject("""
                 SELECT COUNT(*) FROM authorizations WHERE plan_id=? AND action_id=? AND scope='RECONCILE_ACTION'
-                AND status IN ('PENDING','APPROVED') AND expires_at>CURRENT_TIMESTAMP
+                AND status IN ('PENDING','APPROVED') AND expires_at>miec_wall_clock()
                 """,Integer.class,planId,command.actionId())>0)
             throw fail(CONFLICT,"RECONCILIATION_AUTHORIZATION_EXISTS","Ya existe una solicitud o permiso vigente para reconciliar");
         UUID id=UUID.randomUUID();var now=store.lifecycle.now();

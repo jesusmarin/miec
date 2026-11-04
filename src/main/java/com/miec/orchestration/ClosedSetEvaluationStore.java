@@ -50,7 +50,9 @@ class ClosedSetEvaluationStore {
         try {
             snapshot=loader.load(locked.plan(),run,context,dates.getFirst());
             report=evaluator.report(evaluator.request(snapshot,store.lifecycle.now()));
-        }catch(IllegalArgumentException invalid){throw fail(CONFLICT,"EVALUATION_INPUT_INVALID","Las entradas no cumplen las políticas de evaluación");}
+        }catch(IllegalArgumentException invalid){
+            throw fail(CONFLICT,"EVALUATION_INPUT_INVALID","Las entradas no cumplen las políticas de evaluación");
+        }
         var previous=store.jdbc.query("SELECT evaluation_id FROM evaluation WHERE measurement_set_id=? AND evaluation_policy_version=? AND evidence_policy_version=?",
                 (rs,row)->rs.getObject(1,UUID.class),setId,ClosedSetEvaluation.POLICY,ClosedSetEvaluation.EVIDENCE_POLICY);
         if(!previous.isEmpty()) {
@@ -59,12 +61,12 @@ class ClosedSetEvaluationStore {
             return old;
         }
         var saved=new EvaluationContracts.Saved("EVALUATION-SNAPSHOT-01",actor,snapshot,report);var result=report.result();
-        store.jdbc.update("""
+        store.jdbc.update(store.sql.json("""
                 INSERT INTO evaluation(evaluation_id,cycle_id,objective_id,criteria_version_id,observed_results,result_classification,evidence_sufficiency,
                     confidence_level,limitations,rationale,evaluated_at,evaluator_reference,created_at,measurement_set_id,run_id,plan_id,
                     evaluation_policy_version,evidence_policy_version,input_fingerprint,evaluation_snapshot,recorded_by)
                 VALUES (?,?,?,?,? FORMAT JSON,?,?,?, ?,?,?,?, ?,?,?,?,?,?,?,? FORMAT JSON,?)
-                """,result.id(),result.cycleId(),result.objectiveId(),ClosedSetEvaluation.criteriaVersion(snapshot),json.writeValueAsString(report.comparisons()),result.classification().name(),
+                """),result.id(),result.cycleId(),result.objectiveId(),ClosedSetEvaluation.criteriaVersion(snapshot),json.writeValueAsString(report.comparisons()),result.classification().name(),
                 result.evidenceAssessment().sufficiency().name(),result.confidenceLevel().name(),json.writeValueAsString(result.evidenceAssessment().limitations()),result.rationale(),
                 Timestamp.from(result.evaluatedAt()),ClosedSetEvaluation.POLICY,Timestamp.from(result.evaluatedAt()),setId,run.runId(),planId,report.policyVersion(),report.evidencePolicyVersion(),
                 report.inputFingerprint(),json.writeValueAsString(saved),actor);

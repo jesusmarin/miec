@@ -37,6 +37,18 @@ public class ExecutionEvidenceService {
     }
 
     /**
+     * Registra una observacion interna con el reloj de recepcion de la base.
+     * Conserva la fecha original al deduplicar; no acredita verificacion remota.
+     * Los reportes externos mantienen su fecha explicita y su validacion estricta.
+     */
+    Evidence reportObservation(UUID id, ExecutionActivityService.Ownership owner, Outcome outcome,
+            String reference) {
+        Objects.requireNonNull(owner);
+        return append(id,owner.executionId(),Source.EXECUTOR_REPORT,owner.executorId(),owner,
+                outcome,reference,null,null);
+    }
+
+    /**
      * Registra evidencia obtenida por un adaptador verificador confiable. Exige
      * permiso RECONCILE_ACTION vigente y responsable aprobado; no autentica al
      * destinatario remoto ni convierte un reporte del ejecutor en verificación.

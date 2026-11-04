@@ -29,7 +29,7 @@ El MVP v01 completo no se declara cerrado.
 - [Ronda inicial y conclusión operativa: MVP-07.1–07.3](docs/MVP-07-rounds.md).
 - [Continuidad, dos rondas y aceptación: MVP-07.4–07.8](docs/MVP-07-continuity.md).
 - [Contrato del primer destinatario local: MVP-08](docs/MVP-08-local-project.md).
-- [Configuración inicial de PostgreSQL 14 local](docs/POSTGRESQL-local.md).
+- [Instalación y validación de PostgreSQL 14 local](docs/POSTGRESQL-local.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto
 la aplicación escucha en 127.0.0.1:8081 y mantiene apagada la consola H2. Swagger,

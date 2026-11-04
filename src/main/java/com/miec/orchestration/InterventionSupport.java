@@ -14,9 +14,10 @@ import static com.miec.orchestration.LifecycleException.Kind.*;
 class InterventionSupport {
     final JdbcTemplate jdbc;
     final LifecycleService lifecycle;
+    final DatabaseSql sql;
 
     /** Reutiliza las reglas de datos y el reloj del MVP-01. */
-    InterventionSupport(JdbcTemplate jdbc, LifecycleService lifecycle) { this.jdbc=jdbc; this.lifecycle=lifecycle; }
+    InterventionSupport(JdbcTemplate jdbc, LifecycleService lifecycle,DatabaseSql sql) { this.jdbc=jdbc; this.lifecycle=lifecycle;this.sql=sql; }
 
     /** Bloquea un ciclo existente y su sistema activo; el llamador ya mantiene una transacción. */
     LifecycleViews.CycleView lock(UUID id) {

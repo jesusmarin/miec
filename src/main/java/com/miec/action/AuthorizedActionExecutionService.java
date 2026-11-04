@@ -276,7 +276,7 @@ public class AuthorizedActionExecutionService {
             String reference) {
         UUID eventId = UUID.nameUUIDFromBytes((owner.executionId() + ":" + outcome.name())
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        evidenceService.report(eventId, owner, outcome, reference, java.time.Instant.now());
+        evidenceService.reportObservation(eventId, owner, outcome, reference);
     }
 
 }

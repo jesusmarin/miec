@@ -27,11 +27,11 @@ class JdbcDecisionRecorder implements DecisionRecorder {
         if(transition.sourceState()!=CycleState.E09_DECIDIENDO||!Cycle.isValidTransition(transition.sourceState(),transition.proposedState()))
             throw fail(CONFLICT,"DECISION_TRANSITION_INVALID","La transición inmediata no cumple F01");
         UUID id=UUID.randomUUID();
-        store.jdbc.update("""
+        store.jdbc.update(store.sql.json("""
                 INSERT INTO decision_record(decision_id,cycle_id,evaluation_id,decision_type,recommendation,alternatives_considered,selection_rationale,
                     authorization_status,proposed_transition,decision_status,decision_rule_version_id,created_at,outcome_snapshot)
                 VALUES (?,?,?,'MVP_RECOMMENDATION',?,? FORMAT JSON,?,'NOT_GRANTED',? FORMAT JSON,'RECORDED',?,?,? FORMAT JSON)
-                """,id,outcome.evaluation().cycleId(),outcome.evaluation().id(),outcome.recommendation().action().name(),json.writeValueAsString(outcome.alternatives()),
+                """),id,outcome.evaluation().cycleId(),outcome.evaluation().id(),outcome.recommendation().action().name(),json.writeValueAsString(outcome.alternatives()),
                 outcome.recommendation().rationale(),json.writeValueAsString(transition),MvpAlternativePolicy.VERSION,Timestamp.from(outcome.recommendation().recommendedAt()),json.writeValueAsString(outcome));
         return id;
     }
