@@ -738,7 +738,7 @@ def main():
     """Parses the opt-in operator command and always closes only pilot-owned servers."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", help="Required: creates real synthetic business records in the configured local databases")
-    parser.add_argument("--miec-jar", type=Path, default=ROOT / "target/miec-prototype-0.0.1-SNAPSHOT.jar")
+    parser.add_argument("--miec-jar", type=Path, default=ROOT / "target/miec-prototype-0.1.0.jar")
     parser.add_argument("--petclinic-jar", type=Path, default=ROOT.parent / "spring-petclinic/target/spring-petclinic-4.0.0-SNAPSHOT.jar")
     parser.add_argument("--sdk-jar", type=Path, required=True)
     parser.add_argument("--java", type=Path, default=Path(shutil.which("java") or "java"))

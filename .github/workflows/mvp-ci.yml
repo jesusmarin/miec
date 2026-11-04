@@ -16,6 +16,18 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: miec_release_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-ephemeral-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d miec_release_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       SDK_REPOSITORY: jesusmarin/miec-recipient-sdk
       SDK_REF: 5cb3b0fa7971070954acaa7fd2e89620b04f2f51
@@ -71,7 +83,17 @@ jobs:
         run: >-
           bash ./mvnw --batch-mode --no-transfer-progress
           -Dtest=MvpLifecycleRestartIT,ClosedSetEvaluationRestartIT
-          -Dmiec.mvp.jar=target/miec-prototype-0.0.1-SNAPSHOT.jar test
+          -Dmiec.mvp.jar=target/miec-prototype-0.1.0.jar test
+      - name: Verify PostgreSQL navigation and packaged restart
+        env:
+          MIEC_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5432/miec_release_ci
+          MIEC_POSTGRES_USERNAME: postgres
+          MIEC_POSTGRES_PASSWORD: ci-ephemeral-only
+        run: >-
+          bash ./mvnw --batch-mode --no-transfer-progress
+          -Dtest=LifecycleNavigationPostgresIT,PostgresApplicationRestartIT
+          -Dmiec.postgres.test=true
+          -Dmiec.mvp.jar=target/miec-prototype-0.1.0.jar test
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
