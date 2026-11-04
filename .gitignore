@@ -49,3 +49,6 @@ effective-settings*
 
 ### Source code archive ###
 /miec-prototype-src.zip
+
+### Local pilot harness bytecode ###
+/tools/pilot/__pycache__/

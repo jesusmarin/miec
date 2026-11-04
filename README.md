@@ -12,6 +12,10 @@ planes y permisos por ronda, con evaluación, decisión y aprendizaje separados.
 Las fuentes instrumentales verificadas y la preparación productiva siguen pendientes.
 El MVP v01 completo no se declara cerrado.
 
+El primer uso local con PetClinic y PostgreSQL ya tiene aceptación técnica:
+12 casos aprobados, dos rondas hasta E14, respuesta perdida, concurrencia,
+reinicios y restauración del par de bases. La entrega formal versionada sigue pendiente.
+
 - [Contrato de cierre y secuencia del MVP v01](docs/MVP-v01-closure-contract.md).
 - [Seguridad uniforme, configuración y CI](docs/MVP-v01-security-ci.md).
 - [API de sistemas y ciclos](docs/MVP-01-api.md).
@@ -29,6 +33,7 @@ El MVP v01 completo no se declara cerrado.
 - [Ronda inicial y conclusión operativa: MVP-07.1–07.3](docs/MVP-07-rounds.md).
 - [Continuidad, dos rondas y aceptación: MVP-07.4–07.8](docs/MVP-07-continuity.md).
 - [Contrato del primer destinatario local: MVP-08](docs/MVP-08-local-project.md).
+- [Resultado y evidencia del piloto completo: 12/12](docs/MVP-08-local-project-acceptance.md).
 - [Instalación y validación de PostgreSQL 14 local](docs/POSTGRESQL-local.md).
 
 Configurar las cuentas antes de usar las APIs; sin claves no hay acceso. Por defecto

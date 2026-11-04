@@ -9,7 +9,7 @@ No se importan datos históricos desde H2.
 | Proyecto | Base | Dirección | Perfil | Estado |
 |---|---|---|---|---|
 | MIEC | miec-v01 | 127.0.0.1:5532 | postgres | Migraciones y consultas adaptadas |
-| PetClinic | petclinic | 127.0.0.1:5532 | miec,miec-postgres | Esquema del experimento pendiente de portar |
+| PetClinic | petclinic | 127.0.0.1:5532 | miec,miec-postgres | Esquema experimental instalado y validado |
 
 Servidor validado: PostgreSQL 14.4. El puerto 5532 es el acceso local; no sustituirlo
 por el puerto interno del servidor. El usuario `postgres` se utiliza por indicación
@@ -55,10 +55,14 @@ Requieren JDK 21, dependencias Maven y SDK disponibles, PostgreSQL local y permi
 exclusivamente sus bases. No escriben en `miec-v01` ni `petclinic`.
 No se ejecutan en la regresión predeterminada ni requieren secretos en CI.
 
-**Estado: esquema instalado; validación temporal del entorno pendiente.** No se
-declara cerrado el incremento PostgreSQL ni habilitado el piloto conjunto.
+**Estado: esquema instalado y control temporal local aprobado tras mantenimiento.**
+Se completaron tres diagnósticos independientes, los 13 casos PostgreSQL, la
+regresión de 905 casos y el control conjunto de 20 casos sin fallos ni errores.
+La aceptación se limita a la ventana comprobada; no acredita el piloto conjunto
+con PetClinic ni una sincronización absoluta perfecta entre JVM y base de datos.
+Ver [informe de los diez pasos y evidencia](POSTGRESQL-temporal-validation.md).
 
-Resultados locales del 2026-11-04:
+Resultados iniciales de adaptación del 2026-11-04, anteriores al mantenimiento:
 
 | Validación | Casos | Resultado |
 |---|---:|---|
@@ -81,13 +85,20 @@ La base está en el contenedor `postgres14` (`postgres:14-alpine`, puerto 5532),
 sobre Docker Desktop/WSL2. `w32tm /query /status` informó indicador de salto 3 y
 capa 0, ambos **sin sincronizar**, con origen `time.windows.com,0x9`.
 Esto señala una condición del entorno que debe corregirse; no identifica por sí
-solo el mecanismo exacto que produce el retroceso. No se cambiaron el reloj de
-Windows ni el estado de Docker/WSL o de otros contenedores.
+solo el mecanismo exacto que produce el retroceso. En esa validación inicial aún
+no se habían intervenido el reloj de Windows ni Docker/WSL2.
 
-Antes de continuar, estabilizar la sincronización de Windows y comprobar el reloj
-de Docker/WSL2. La intervención debe coordinarse porque un reinicio de Docker o WSL
-puede interrumpir PostgreSQL y otros servicios locales. Después ejecutar primero
-el diagnóstico, repetir la suite PostgreSQL y comprobar dos rondas completas.
+El mantenimiento posterior autorizado resincronizó Windows mediante UAC y reinició
+Docker/WSL2, restaurando los dos contenedores previamente activos. Windows informó
+indicador de salto 0 y capa 5. Las verificaciones posteriores finalizaron el
+2026-11-04 a las 11:21:36, hora local, sin retrocesos detectados y con los 20 casos
+conjuntos aprobados. Se conservó la validación estricta de fechas y permisos.
+Las sondas registraron desfases absolutos de unos 151 ms y 727 ms en momentos
+distintos; deben mantenerse bajo seguimiento, sin asumir igualdad entre relojes.
+
+Ante un nuevo retroceso, reabrir esta deuda. Después de suspensiones o cambios de
+hora, repetir primero el diagnóstico y luego la suite PostgreSQL. Coordinar toda
+intervención que requiera reiniciar Docker/WSL2 porque afecta otros servicios.
 
 ```powershell
 # 13 escenarios: migraciones, dos rondas, concurrencia, permisos, rollback,
@@ -129,8 +140,16 @@ aplica o valida su propio historial. Las IT del JAR validan el ciclo inicial ent
 JVM; las IT de rondas validan servicios completos con un adaptador de laboratorio,
 sin acreditar un destinatario externo.
 
-El siguiente paso es portar y validar el esquema propio de PetClinic y ejecutar
-[MVP-08](MVP-08-local-project.md). No iniciar aún `miec,miec-postgres`: sigue exigiendo
-`db/miec-postgresql/schema.sql` y `data.sql`. El piloto conjunto, reinicios de
-PetClinic, privilegios SQL mínimos, respaldo/restauración, TLS e identidades
-distribuidas requieren validaciones separadas.
+PetClinic ya incorpora `db/miec-postgresql/schema.sql` y `data.sql`. Su esquema,
+deduplicación, rollback y recuperación tras respuesta perdida y caída forzada de
+JVM están validados con PostgreSQL real. Puede iniciarse con `miec,miec-postgres`
+después de configurar su secreto de API; ver la guía del destinatario
+`spring-petclinic/docs/MIEC-POSTGRESQL.md` y el
+[informe de validación](IR-009-C09-petclinic-postgresql.md).
+
+El piloto [MVP-08](MVP-08-local-project.md) ya se ejecutó con ambos proyectos sobre
+PostgreSQL y datos propios: [12 casos aprobados, dos rondas y E14](MVP-08-local-project-acceptance.md).
+Incluyó respuesta perdida, concurrencia, reinicios y restauración del par en bases
+nuevas. El siguiente paso es la revisión humana y entrega formal versionada.
+Privilegios SQL mínimos, una política operativa de respaldos, TLS e identidades
+distribuidas requieren incrementos separados.
