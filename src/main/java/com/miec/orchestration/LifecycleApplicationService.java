@@ -5,16 +5,30 @@ import java.util.UUID;
 import static com.miec.orchestration.LifecycleCommands.*;
 import static com.miec.orchestration.LifecycleViews.*;
 
-/** Fachada autenticada del MVP-01; los servicios internos conservan su contrato transaccional. */
+/** Fachada autenticada de ciclo y navegacion MVP-01/MVP-09; cada caso conserva su transaccion interna. */
 @Service
 public class LifecycleApplicationService {
     private final LifecycleService lifecycle;
     private final InterventionIdentity identity;
+    private final LifecycleQueries queries;
 
     /** Reutiliza persistencia y resolución de identidad sin envolver efectos externos. */
-    LifecycleApplicationService(LifecycleService lifecycle, InterventionIdentity identity) {
+    LifecycleApplicationService(LifecycleService lifecycle, InterventionIdentity identity, LifecycleQueries queries) {
         this.lifecycle = lifecycle;
         this.identity = identity;
+        this.queries = queries;
+    }
+
+    /** Lista el catalogo global del MVP solo despues de comprobar identidad lectora. */
+    public LifecycleNavigationViews.SystemPage listSystems(int limit, String after, String q, String status) {
+        identity.reader();
+        return queries.systems(limit, after, q, status);
+    }
+
+    /** Lista ciclos del sistema sin conceder permisos para iniciarlos o ejecutarlos. */
+    public LifecycleNavigationViews.CyclePage listCycles(UUID systemId, int limit, String after, String state) {
+        identity.reader();
+        return queries.cycles(systemId, limit, after, state);
     }
 
     /** Registra un sistema solo con rol AUTHOR; ownerReference es metadato, no una autorización. */

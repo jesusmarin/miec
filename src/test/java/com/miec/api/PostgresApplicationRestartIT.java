@@ -59,14 +59,14 @@ class PostgresApplicationRestartIT {
             throw new AssertionError("El JAR PostgreSQL no estuvo disponible; revisar target/postgres-restart-it");
         }catch(Throwable failure){running.close();throw failure;}
     }
-    /** Conserva sistema, ciclo y auditoria, y rechaza un inicio duplicado despues del reinicio. */
-    @Test @DisplayName("Dos JVM conservan sistema, ciclo versionado y auditoria PostgreSQL")
+    /** Conserva detalles, listados y auditoria entre JVM y rechaza un inicio duplicado. */
+    @Test @DisplayName("Dos JVM conservan sistema, ciclo, navegacion y auditoria PostgreSQL")
     void persistsAcrossJvmRestart() throws Exception {
         var jar=Path.of(Objects.requireNonNull(System.getProperty("miec.mvp.jar"),"Defina -Dmiec.mvp.jar")).toAbsolutePath();
         assertTrue(Files.isRegularFile(jar));
         var directory=Files.createTempDirectory(Files.createDirectories(Path.of("target/postgres-restart-it")),"run-").toAbsolutePath();
         try(var database=PostgresTestDatabase.create("restart")){
-            String systemId,cycleId,systemBody,cycleBody,historyBody;long firstPid;
+            String systemId,cycleId,systemBody,cycleBody,historyBody,systemsPage,cyclesPage;long firstPid;
             try(var first=start(jar,directory,database,1)){
                 firstPid=first.process().pid();
                 var system=request(first.base(),"/api/systems","{\"name\":\"PostgreSQL restart\",\"domain\":\"software\"}");
@@ -76,15 +76,24 @@ class PostgresApplicationRestartIT {
                 var started=request(first.base(),"/api/cycles/"+cycleId+"/start","{\"expectedVersion\":0,\"reason\":\"validar PostgreSQL\"}");
                 assertEquals(200,started.statusCode());cycleBody=started.body();
                 var history=request(first.base(),"/api/cycles/"+cycleId+"/history",null);assertEquals(200,history.statusCode());historyBody=history.body();
+                var listed=request(first.base(),"/api/systems?limit=1",null);assertEquals(200,listed.statusCode());systemsPage=listed.body();
+                var summary=json.readTree(systemsPage).path("items").get(0);
+                assertEquals(systemId,summary.path("systemId").asString());assertEquals(1,summary.path("cycleCount").asLong());
+                assertEquals(1,summary.path("cyclesByState").path("E01_INICIALIZANDO").asLong());
+                assertEquals(cycleId,summary.path("recentCycle").path("cycleId").asString());assertFalse(summary.path("lastActivityAt").isNull());
+                var children=request(first.base(),"/api/systems/"+systemId+"/cycles",null);assertEquals(200,children.statusCode());cyclesPage=children.body();
+                assertEquals(json.readTree(cycleBody),json.readTree(cyclesPage).path("items").get(0));
             }
             try(var second=start(jar,directory,database,2)){
                 assertNotEquals(firstPid,second.process().pid());
                 assertEquals(json.readTree(systemBody),json.readTree(request(second.base(),"/api/systems/"+systemId,null).body()));
                 assertEquals(json.readTree(cycleBody),json.readTree(request(second.base(),"/api/cycles/"+cycleId,null).body()));
                 assertEquals(json.readTree(historyBody),json.readTree(request(second.base(),"/api/cycles/"+cycleId+"/history",null).body()));
+                assertEquals(json.readTree(systemsPage),json.readTree(request(second.base(),"/api/systems?limit=1",null).body()));
+                assertEquals(json.readTree(cyclesPage),json.readTree(request(second.base(),"/api/systems/"+systemId+"/cycles",null).body()));
                 assertEquals(409,request(second.base(),"/api/cycles/"+cycleId+"/start","{\"expectedVersion\":0,\"reason\":\"repetido\"}").statusCode());
             }
         }
-        System.out.println("POSTGRESQL REINICIO VALIDADO: dos JVM, sistema/ciclo/auditoria conservados y comando duplicado rechazado.");
+        System.out.println("POSTGRESQL REINICIO VALIDADO: dos JVM, sistema/ciclo/listados/auditoria conservados y comando duplicado rechazado.");
     }
 }

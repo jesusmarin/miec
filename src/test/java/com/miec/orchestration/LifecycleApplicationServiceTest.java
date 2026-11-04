@@ -2,6 +2,7 @@ package com.miec.orchestration;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -13,7 +14,8 @@ import static org.mockito.Mockito.*;
 /** Comprueba que invocar la fachada sin HTTP tampoco permite eludir identidad o roles. */
 class LifecycleApplicationServiceTest {
     private final LifecycleService persistence=mock(LifecycleService.class);
-    private final LifecycleApplicationService service=new LifecycleApplicationService(persistence,new InterventionIdentity());
+    private final LifecycleQueries queries=mock(LifecycleQueries.class);
+    private final LifecycleApplicationService service=new LifecycleApplicationService(persistence,new InterventionIdentity(),queries);
 
     /** Evita propagar la identidad de una prueba hacia otra. */
     @AfterEach void clearIdentity() { SecurityContextHolder.clearContext(); }
@@ -25,7 +27,7 @@ class LifecycleApplicationServiceTest {
     }
 
     /** Ningún caso de uso accede a persistencia sin autenticación. */
-    @Test void shouldRejectUnauthenticatedFacadeCalls() {
+    @Test @DisplayName("Ninguna operacion de fachada omite la autenticacion") void shouldRejectUnauthenticatedFacadeCalls() {
         UUID id=UUID.randomUUID();
         assertEquals("AUTHENTICATION_REQUIRED",assertThrows(LifecycleException.class,()->service.getSystem(id)).code());
         assertThrows(LifecycleException.class,()->service.getCycle(id));
@@ -33,27 +35,40 @@ class LifecycleApplicationServiceTest {
         assertThrows(LifecycleException.class,()->service.createSystem(new LifecycleCommands.CreateSystem("s",null,null,null)));
         assertThrows(LifecycleException.class,()->service.createCycle(id,new LifecycleCommands.CreateCycle(null)));
         assertThrows(LifecycleException.class,()->service.startCycle(id,new LifecycleCommands.StartCycle(0L,"inicio")));
-        verifyNoInteractions(persistence);
+        assertThrows(LifecycleException.class,()->service.listSystems(50,null,null,null));
+        assertThrows(LifecycleException.class,()->service.listCycles(id,50,null,null));
+        verifyNoInteractions(persistence,queries);
     }
 
     /** APPROVER consulta pero no crea sistemas, ciclos ni inicios. */
-    @Test void shouldSeparateReaderAndAuthorPermissions() {
+    @Test @DisplayName("APPROVER consulta listados y detalles sin recibir permisos de escritura") void shouldSeparateReaderAndAuthorPermissions() {
         authenticate("APPROVER"); UUID id=UUID.randomUUID();
         service.getSystem(id); service.getCycle(id); service.history(id,50,null);
         verify(persistence).getSystem(id); verify(persistence).getCycle(id); verify(persistence).history(id,50,null);
+        service.listSystems(20,null,"s","ACTIVE");service.listCycles(id,20,null,"E00_INACTIVO");
+        verify(queries).systems(20,null,"s","ACTIVE");verify(queries).cycles(id,20,null,"E00_INACTIVO");
         assertThrows(LifecycleException.class,()->service.createSystem(new LifecycleCommands.CreateSystem("s",null,null,null)));
         assertThrows(LifecycleException.class,()->service.createCycle(id,new LifecycleCommands.CreateCycle(null)));
         assertThrows(LifecycleException.class,()->service.startCycle(id,new LifecycleCommands.StartCycle(0L,"inicio")));
-        verifyNoMoreInteractions(persistence);
+        verifyNoMoreInteractions(persistence,queries);
     }
 
     /** La auditoría del ciclo recibe el principal autenticado y no una identidad aportada por el comando. */
-    @Test void shouldPropagateServerIdentityToPersistence() {
+    @Test @DisplayName("Los comandos conservan la identidad autenticada del servidor") void shouldPropagateServerIdentityToPersistence() {
         authenticate("AUTHOR"); UUID id=UUID.randomUUID();
         var create=new LifecycleCommands.CreateCycle(null);
         var start=new LifecycleCommands.StartCycle(0L,"inicio");
         service.createCycle(id,create); service.startCycle(id,start);
         verify(persistence).createCycle(id,create,"server-author");
         verify(persistence).startCycle(id,start,"server-author");
+    }
+
+    /** Estar autenticado sin rol lector tampoco habilita el catalogo global o sus ciclos. */
+    @Test @DisplayName("Un rol ajeno no accede a los listados mediante llamadas internas")
+    void shouldRejectNonReaderRole(){
+        authenticate("OBSERVER");
+        assertEquals("FORBIDDEN",assertThrows(LifecycleException.class,()->service.listSystems(50,null,null,null)).code());
+        assertEquals("FORBIDDEN",assertThrows(LifecycleException.class,()->service.listCycles(UUID.randomUUID(),50,null,null)).code());
+        verifyNoInteractions(persistence,queries);
     }
 }
